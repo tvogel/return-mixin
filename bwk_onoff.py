@@ -2,6 +2,8 @@ import pyads
 import datetime
 import time
 import threading
+import json
+import os
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
@@ -40,12 +42,28 @@ last_update_dt = None
 value_ema = EMA(0.5 ** (1/60)) # 50% per minute
 auto_off_dt = None
 
+PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'bwk_onoff_params.json')
+
+def load_parameters():
+  try:
+    with open(PARAMS_FILE, 'r') as f:
+      params = json.load(f)
+      set_parameters(params)
+  except FileNotFoundError:
+    pass
+
+def save_parameters():
+  params = get_parameters()
+  with open(PARAMS_FILE, 'w') as f:
+    json.dump(params, f)
+
 def set_parameters(params):
   global value_ema, threshold, auto_duration_minutes
   with parameter_lock:
     value_ema.decay_factor = params.get('decay_factor', value_ema.decay_factor)
     threshold = params.get('threshold', threshold)
     auto_duration_minutes = params.get('auto_duration_minutes', auto_duration_minutes)
+  save_parameters()
 
 def get_parameters():
   with parameter_lock:
@@ -54,14 +72,15 @@ def get_parameters():
 def control_loop():
   global last_update_dt, value_ema, auto_off_dt
   diagnostics = {}
+  now = datetime.datetime.now()
+  diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
   try:
     actual_value = plc.read_by_name(actual_value_name)
     current_control_bwk = plc.read_by_name(control_bwk_name)
     current_control_pk = plc.read_by_name(control_pk_name)
     current_pk_available = plc.read_by_name(pk_available_name)
     now = datetime.datetime.now()
-    now_string = now.replace(microsecond=0).isoformat()
-    diagnostics['timestamp'] = now_string
+    diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
 
     dt = (now - last_update_dt).total_seconds() if last_update_dt else None
     last_update_dt = now
@@ -122,6 +141,8 @@ def main(stop_requested):
     except:
       break
   return 0
+
+load_parameters()
 
 if __name__ == '__main__':
   exit(main(lambda: False))

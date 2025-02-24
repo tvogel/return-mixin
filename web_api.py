@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, render_template_string
-from return_mixin import get_pid, set_pid, control_loop as return_mixin_control_loop
+from return_mixin import get_parameters as return_mixin_get_parameters, set_parameters as return_mixin_set_parameters, control_loop as return_mixin_control_loop
 from bwk_onoff import get_parameters, set_parameters, control_loop as bwk_onoff_control_loop
 import threading
 import time
@@ -12,6 +12,45 @@ bwk_onoff_diagnostics = []
 return_mixin_lock = threading.Lock()
 bwk_onoff_lock = threading.Lock()
 
+common_styles = '''
+<style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+    table {
+        width: 60em;
+        border-collapse: collapse;
+    }
+    th, td {
+        border: 1px solid black;
+        padding: 4px;
+        text-align: center;
+    }
+    th {
+        background-color: #CECECE;
+    }
+    tr:nth-child(odd) {
+        background-color: #E8E8E8;
+    }
+    .thick-border {
+        border-left: 3px solid black;
+    }
+    .form-grid {
+        display: grid;
+        grid-template-columns: max-content auto;
+        gap: 0.5em;
+        align-items: center;
+    }
+    .form-grid label {
+        text-align: right;
+    }
+    .form-grid button {
+        grid-column: 2;
+        justify-self: start;
+    }
+</style>
+'''
+
 @app.route('/', methods=['GET'])
 def home():
     return '''
@@ -19,11 +58,7 @@ def home():
     <html>
     <head>
         <title>Home</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-            }
-        </style>
+        {{ common_styles|safe }}
     </head>
     <body>
         <h1>Welcome to PyADS Control</h1>
@@ -41,36 +76,14 @@ def index():
     <html>
     <head>
         <title>PyADS Control</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-            }
-            table {
-                width: 60em;
-                border-collapse: collapse;
-            }
-            th, td {
-                border: 1px solid black;
-                padding: 4px;
-                text-align: center;
-            }
-            th {
-                background-color: #CECECE;
-            }
-            tr:nth-child(even) {
-                background-color: #E8E8E8;
-            }
-            .thick-border {
-                border-left: 3px solid black;
-            }
-        </style>
+        {{ common_styles|safe }}
         <script>
             async function fetchDiagnostics() {
                 const response = await fetch('/api/return-mixin/diagnostics');
                 const data = await response.json();
                 const table = document.getElementById('diagnostics');
                 table.innerHTML = '<tr><th>dt</th><th>actual_value</th><th>error</th><th>I_error</th><th>D_error</th><th class="thick-border">P</th><th>I</th><th>D</th><th>control_output</th><th>new_control_value</th></tr>';
-                data.forEach(row => {
+                data.reverse().forEach(row => {
                     const tr = document.createElement('tr');
                     const keys = ['dt', 'actual_value', 'error', 'I_error', 'D_error', 'P', 'I', 'D', 'control_output', 'new_control_value'];
                     keys.forEach((key) => {
@@ -79,61 +92,83 @@ def index():
                         if (key === 'P') {
                             td.classList.add('thick-border');
                         }
-                        tr.appendChild(td);
+                        tr.append(td);
                     });
-                    table.appendChild(tr);
+                    table.append(tr);
                 });
             }
 
-            async function fetchPID() {
-                const response = await fetch('/api/return-mixin/pid');
+            function halfLifeToDecayFactor(halfLifeMinutes) {
+                if (halfLifeMinutes <= 0) {
+                    return 0;
+                }
+                return Math.pow(2, -1 / halfLifeMinutes / 60);
+            }
+
+            function decayFactorToHalfLife(decayFactor) {
+                return - Math.log(2) / Math.log(decayFactor) / 60;
+            }
+
+            async function fetchParameters() {
+                const response = await fetch('/api/return-mixin/parameters');
                 const data = await response.json();
                 document.getElementById('Kp').value = data.Kp;
                 document.getElementById('Ki').value = data.Ki;
                 document.getElementById('Kd').value = data.Kd;
                 document.getElementById('set_point').value = data.set_point;
+                document.getElementById('off_range').value = data.off_range;
+                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
             }
 
-            async function updatePID() {
+            async function updateParameters() {
                 const Kp = Number(document.getElementById('Kp').value);
                 const Ki = Number(document.getElementById('Ki').value);
                 const Kd = Number(document.getElementById('Kd').value);
                 const set_point = Number(document.getElementById('set_point').value);
-                await fetch('/api/return-mixin/pid', {
+                const off_range = Number(document.getElementById('off_range').value);
+                const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
+                const decay_factor = halfLifeToDecayFactor(half_life_minutes);
+                await fetch('/api/return-mixin/parameters', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ Kp, Ki, Kd, set_point })
+                    body: JSON.stringify({ Kp, Ki, Kd, set_point, off_range, decay_factor })
                 });
-                fetchPID();
+                fetchParameters();
             }
 
             setInterval(fetchDiagnostics, 5000);
             window.onload = function() {
                 fetchDiagnostics();
-                fetchPID();
+                fetchParameters();
             }
         </script>
     </head>
     <body>
         <h1>PyADS Control</h1>
         <a href="/">Home</a>
+        <h2>PID Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="Kp">Kp:</label>
+            <input type="number" id="Kp" step="0.00001">
+            <label for="Ki">Ki:</label>
+            <input type="number" id="Ki" step="0.00001">
+            <label for="Kd">Kd:</label>
+            <input type="number" id="Kd" step="0.00001">
+            <label for="set_point">Set Point:</label>
+            <input type="number" id="set_point" step="0.00001">
+            <label for="off_range">Off-Range:</label>
+            <input type="number" id="off_range" step="0.00001">
+            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
+            <input type="number" id="half_life_minutes" step="0.00001">
+            <button type="submit">Update PID</button>
+        </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
-        <h2>PID Parameters</h2>
-        <label for="Kp">Kp:</label>
-        <input type="number" id="Kp" step="0.01"><br>
-        <label for="Ki">Ki:</label>
-        <input type="number" id="Ki" step="0.01"><br>
-        <label for="Kd">Kd:</label>
-        <input type="number" id="Kd" step="0.01"><br>
-        <label for="set_point">Set Point:</label>
-        <input type="number" id="set_point" step="0.1"><br>
-        <button onclick="updatePID()">Update PID</button>
     </body>
     </html>
-    ''')
+    ''', common_styles=common_styles)
 
 @app.route('/bwk_onoff', methods=['GET'])
 def bwk_onoff_index():
@@ -142,26 +177,7 @@ def bwk_onoff_index():
     <html>
     <head>
         <title>BWK On/Off Control</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-            }
-            table {
-                width: 60em;
-                border-collapse: collapse;
-            }
-            th, td {
-                border: 1px solid black;
-                padding: 4px;
-                text-align: left;
-            }
-            th {
-                background-color: #CECECE;
-            }
-            tr:nth-child(even) {
-                background-color: #E8E8E8;
-            }
-        </style>
+        {{ common_styles|safe }}
         <script>
             function halfLifeToDecayFactor(halfLifeMinutes) {
                 if (halfLifeMinutes <= 0) {
@@ -179,7 +195,7 @@ def bwk_onoff_index():
                 const data = await response.json();
                 const table = document.getElementById('diagnostics');
                 table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
-                data.forEach(row => {
+                data.reverse().forEach(row => {
                     const tr = document.createElement('tr');
                     const tdTimestamp = document.createElement('td');
                     tdTimestamp.innerText = row.timestamp;
@@ -187,7 +203,7 @@ def bwk_onoff_index():
                     tdData.innerText = JSON.stringify(row.data);
                     tr.appendChild(tdTimestamp);
                     tr.appendChild(tdData);
-                    table.appendChild(tr);
+                    table.append(tr);
                 });
             }
 
@@ -224,19 +240,21 @@ def bwk_onoff_index():
     <body>
         <h1>BWK On/Off Control</h1>
         <a href="/">Home</a>
+        <h2>Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updateBWKParameters();">
+            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
+            <input type="number" id="half_life_minutes" step="0.00001">
+            <label for="threshold">Threshold:</label>
+            <input type="number" id="threshold" step="0.00001">
+            <label for="auto_duration_minutes">Auto Duration (minutes):</label>
+            <input type="number" id="auto_duration_minutes" step="0.00001">
+            <button type="submit">Update Parameters</button>
+        </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
-        <h2>Parameters</h2>
-        <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
-        <input type="number" id="half_life_minutes" step="0.01"><br>
-        <label for="threshold">Threshold:</label>
-        <input type="number" id="threshold" step="0.1"><br>
-        <label for="auto_duration_minutes">Auto Duration (minutes):</label>
-        <input type="number" id="auto_duration_minutes" step="0.1"><br>
-        <button onclick="updateBWKParameters()">Update Parameters</button>
     </body>
     </html>
-    ''')
+    ''', common_styles=common_styles)
 
 @app.route('/api/return-mixin/diagnostics', methods=['GET'])
 def get_return_mixin_diagnostics():
@@ -248,12 +266,11 @@ def get_bwk_onoff_diagnostics():
     with bwk_onoff_lock:
         return jsonify(bwk_onoff_diagnostics)
 
-@app.route('/api/return-mixin/pid', methods=['GET', 'POST'])
-def pid_parameters():
-    global Kp, Ki, Kd
+@app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
+def return_mixin_parameters():
     if request.method == 'POST':
-        set_pid(request.json)
-    return jsonify(get_pid())
+        return_mixin_set_parameters(request.json)
+    return jsonify(return_mixin_get_parameters())
 
 @app.route('/api/bwk-onoff/parameters', methods=['GET', 'POST'])
 def bwk_onoff_parameters():
