@@ -12,9 +12,9 @@ CONTROL_ON = 3
 control_range = (-1, 100)
 integration_decay_factor = 0.5 ** (1/60) # 50% per minute
 
-Kp = 15 / 60 # 15% per minute per degree
-Ki = 15 / 60 # 15% per minute per long-term degree
-Kd = 1200 / 60 # 1200% per minute per degree change per second
+Kp = 7.5 / 60 # percent per second per degree
+Ki = 7.5 / 60 # percent per second per long-term degree
+Kd = 510 / 60 # percent per second per degree change per second
 
 # Lock for PID parameters
 pid_lock = threading.Lock()
@@ -88,10 +88,6 @@ def control_loop():
       'new_control_value': new_control_value
     }
 
-    for item in diagnostics.values():
-      print('%0.2f ' % item if item is not None else '- ', end='')
-    print(flush=True)
-
     if new_control_value <= control_range[0]:
       plc.write_by_name(control_onoff_name, CONTROL_OFF)
     else:
@@ -106,7 +102,11 @@ def control_loop():
 
 def main(stop_requested):
   while not stop_requested():
-    control_loop()
+    diagnostics = control_loop()
+    for item in diagnostics.values():
+      print('%0.2f ' % item if item is not None else '- ', end='')
+    print(flush=True)
+
     try:
       time.sleep(5)
     except:
