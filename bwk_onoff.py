@@ -41,7 +41,7 @@ value_ema = EMA(0.5 ** (1/60)) # 50% per minute
 auto_off_dt = None
 
 def set_parameters(params):
-  global value_ema, threshold
+  global value_ema, threshold, auto_duration_minutes
   with parameter_lock:
     value_ema.decay_factor = params.get('decay_factor', value_ema.decay_factor)
     threshold = params.get('threshold', threshold)
@@ -68,8 +68,25 @@ def control_loop():
     value_ema.update(actual_value, dt)
     diagnostics['actual_value'] = actual_value
     diagnostics['value_ema'] = value_ema.last
+    diagnostics['bwk'] = control_str(current_control_bwk)
+    if auto_off_dt:
+      diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
     #diagnostics['vl_in'] = plc.read_by_name('PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.In.DataIn')
     #diagnostics['multi'] = plc.read_by_name('PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fIntMuliti')
+
+    if current_control_bwk != CONTROL_ON:
+      if value_ema.last < threshold:
+        plc.write_by_name(control_bwk_name, CONTROL_AUTO)
+        diagnostics['control_bwk'] = 'auto'
+        auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
+        diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
+        return diagnostics
+
+    if current_control_bwk == CONTROL_OFF:
+      if auto_off_dt is not None:
+        auto_off_dt = None
+        diagnostics['auto_off'] = 'superceded'
+        return diagnostics
 
     if current_control_bwk == CONTROL_AUTO:
       if auto_off_dt is None:
@@ -77,23 +94,15 @@ def control_loop():
         diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
         return diagnostics
       if now >= auto_off_dt:
+        auto_off_dt = None
         diagnostics['auto_off'] = 'expired'
         diagnostics['pk_control'] = control_str(current_control_pk)
         diagnostics['pk_available'] = current_pk_available
-        if current_control_pk != CONTROL_OFF and current_pk_available:
-          plc.write_by_name(control_bwk_name, CONTROL_OFF)
-          diagnostics['control_bwk'] = 'off'
-        else:
+        if current_control_pk == CONTROL_OFF or not current_pk_available:
           diagnostics['control_bwk'] = 'ignored (PK not available)'
-        auto_off_dt = None
-        return diagnostics
-
-    if current_control_bwk == CONTROL_OFF:
-      if value_ema.last < threshold:
-        plc.write_by_name(control_bwk_name, CONTROL_AUTO)
-        diagnostics['control_bwk'] = 'auto'
-        auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
-        diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
+          return diagnostics
+        plc.write_by_name(control_bwk_name, CONTROL_OFF)
+        diagnostics['control_bwk'] = 'off'
         return diagnostics
 
   except Exception as e:

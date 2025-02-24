@@ -19,6 +19,11 @@ def home():
     <html>
     <head>
         <title>Home</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+            }
+        </style>
     </head>
     <body>
         <h1>Welcome to PyADS Control</h1>
@@ -37,6 +42,9 @@ def index():
     <head>
         <title>PyADS Control</title>
         <style>
+            body {
+                font-family: Arial, sans-serif;
+            }
             table {
                 width: 60em;
                 border-collapse: collapse;
@@ -135,6 +143,9 @@ def bwk_onoff_index():
     <head>
         <title>BWK On/Off Control</title>
         <style>
+            body {
+                font-family: Arial, sans-serif;
+            }
             table {
                 width: 60em;
                 border-collapse: collapse;
