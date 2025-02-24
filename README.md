@@ -7,6 +7,7 @@ This project provides a control loop service using PyADS and a web API for monit
 - `web_api.py`: Flask web application for monitoring diagnostics and adjusting PID parameters.
 - `service.py`: Windows service implementation to run the control loop and web API.
 - `return_mixin.py`: Contains the control loop logic and PID parameter handling.
+- `bwk_onoff.py`: Contains the control logic for enabling the BWK (gas heating) when the heat output of the PK (pellet heating) is too low.
 
 ## Installation
 
@@ -44,7 +45,9 @@ mklink /D lib .venv\lib
 
 Access the web interface at `http://localhost:5000` to view diagnostics and adjust PID parameters.
 
-### Diagnostics
+### Return Mix-In
+
+#### Diagnostics
 
 The diagnostics table displays the following information:
 - `dt`: Time difference between control loop iterations.
@@ -56,9 +59,24 @@ The diagnostics table displays the following information:
 - `control_output`: Combined control output.
 - `new_control_value`: New control value to be written to the PLC.
 
-### PID Parameters
+#### PID Parameters
 
 Adjust the PID parameters (`Kp`, `Ki`, `Kd`) and the set point using the input fields and the "Update PID" button.
+
+### BWK On/Off Control
+
+The `bwk_onoff` control logic enables the BWK (gas heating) when the heat output of the PK (pellet heating) is too low. The parameters for this control can be adjusted via the web interface.
+
+#### Diagnostics
+
+The diagnostics table displays updates of temperature monitoring and actions taken.
+
+### Parameters
+
+You can adjust the following parameters;
+- Half-Life for exponential mean average
+- Threshold temperature for activating the BWK
+- Duration of activating the BWK
 
 ## Development
 

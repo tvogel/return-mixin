@@ -7,7 +7,7 @@ import time
 import os
 import threading
 
-from web_api import start_control_loop, app
+from web_api import start_control_loops, app
 
 print("Starting service\n")
 print("Working directory: %s\n" % os.getcwd())
@@ -37,7 +37,7 @@ class PyADSService(win32serviceutil.ServiceFramework):
         self.main()
 
     def main(self):
-        start_control_loop()
+        start_control_loops()
         api_thread = threading.Thread(target=app.run, kwargs={'host': 'localhost', 'port': 5000})
         api_thread.daemon = True
         api_thread.start()
