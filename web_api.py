@@ -53,7 +53,7 @@ common_styles = '''
 
 @app.route('/', methods=['GET'])
 def home():
-    return '''
+    return render_template_string('''
     <!DOCTYPE html>
     <html>
     <head>
@@ -67,7 +67,7 @@ def home():
         <a href="/bwk_onoff">BWK On/Off</a>
     </body>
     </html>
-    '''
+    ''', common_styles=common_styles)
 
 @app.route('/return_mixin', methods=['GET'])
 def index():
