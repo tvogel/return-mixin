@@ -86,9 +86,10 @@ def index():
                 data.reverse().forEach(row => {
                     const tr = document.createElement('tr');
                     const keys = ['dt', 'actual_value', 'error', 'I_error', 'D_error', 'P', 'I', 'D', 'control_output', 'new_control_value'];
+                    const digits = { D_error: 4 };
                     keys.forEach((key) => {
                         const td = document.createElement('td');
-                        td.innerText = row[key]?.toFixed(2) ?? '-';
+                        td.innerText = row[key]?.toFixed(digits[key] ?? 2) ?? '-';
                         if (key === 'P') {
                             td.classList.add('thick-border');
                         }

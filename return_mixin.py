@@ -108,8 +108,9 @@ def control_loop():
       'new_control_value': new_control_value
     }
 
-    if new_control_value <= control_range[0]:
+    if new_control_value <= control_range[0] / 2:
       plc.write_by_name(control_onoff_name, CONTROL_OFF)
+      plc.write_by_name(control_value_name, 0)
     else:
       plc.write_by_name(control_onoff_name, CONTROL_ON)
       plc.write_by_name(control_value_name, max(new_control_value, 0))
