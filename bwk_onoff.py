@@ -85,13 +85,11 @@ def control_loop():
     dt = (now - last_update_dt).total_seconds() if last_update_dt else None
     last_update_dt = now
     value_ema.update(actual_value, dt)
-    diagnostics['actual_value'] = actual_value
-    diagnostics['value_ema'] = value_ema.last
+    diagnostics['value'] = round(actual_value, 2)
+    diagnostics['value_ema'] = round(value_ema.last, 2)
     diagnostics['bwk'] = control_str(current_control_bwk)
     if auto_off_dt:
       diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
-    #diagnostics['vl_in'] = plc.read_by_name('PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.In.DataIn')
-    #diagnostics['multi'] = plc.read_by_name('PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fIntMuliti')
 
     if current_control_bwk != CONTROL_ON:
       if value_ema.last < threshold:

@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template_string
-from return_mixin import get_parameters as return_mixin_get_parameters, set_parameters as return_mixin_set_parameters, control_loop as return_mixin_control_loop
-from bwk_onoff import get_parameters, set_parameters, control_loop as bwk_onoff_control_loop
+import return_mixin
+import bwk_onoff
+import pk_onoff
 import threading
 import time
 
@@ -9,8 +10,10 @@ app = Flask(__name__)
 # Shared variables for diagnostics
 return_mixin_diagnostics = []
 bwk_onoff_diagnostics = []
+pk_onoff_diagnostics = []
 return_mixin_lock = threading.Lock()
 bwk_onoff_lock = threading.Lock()
+pk_onoff_lock = threading.Lock()
 
 common_styles = '''
 <style>
@@ -65,6 +68,8 @@ def home():
         <a href="/return_mixin">Return Mix-in</a>
         <br>
         <a href="/bwk_onoff">BWK On/Off</a>
+        <br>
+        <a href="/pk_onoff">PK On/Off</a>
     </body>
     </html>
     ''', common_styles=common_styles)
@@ -257,6 +262,92 @@ def bwk_onoff_index():
     </html>
     ''', common_styles=common_styles)
 
+@app.route('/pk_onoff', methods=['GET'])
+def pk_onoff_index():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>PK On/Off Control</title>
+        {{ common_styles|safe }}
+        <script>
+            function halfLifeToDecayFactor(halfLifeMinutes) {
+                if (halfLifeMinutes <= 0) {
+                    return 0;
+                }
+                return Math.pow(2, -1 / halfLifeMinutes / 60);
+            }
+
+            function decayFactorToHalfLife(decayFactor) {
+                return - Math.log(2) / Math.log(decayFactor) / 60;
+            }
+
+            async function fetchDiagnostics() {
+                const response = await fetch('/api/pk-onoff/diagnostics');
+                const data = await response.json();
+                const table = document.getElementById('diagnostics');
+                table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
+                data.reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    const tdTimestamp = document.createElement('td');
+                    tdTimestamp.innerText = row.timestamp;
+                    const tdData = document.createElement('td');
+                    tdData.innerText = JSON.stringify(row.data);
+                    tr.appendChild(tdTimestamp);
+                    tr.appendChild(tdData);
+                    table.append(tr);
+                });
+            }
+
+            async function fetchPKParameters() {
+                const response = await fetch('/api/pk-onoff/parameters');
+                const data = await response.json();
+                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
+                document.getElementById('on_threshold').value = data.on_threshold;
+                document.getElementById('off_threshold').value = data.off_threshold;
+            }
+
+            async function updatePKParameters() {
+                const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
+                const decay_factor = halfLifeToDecayFactor(half_life_minutes);
+                const on_threshold = Number(document.getElementById('on_threshold').value);
+                const off_threshold = Number(document.getElementById('off_threshold').value);
+                await fetch('/api/pk-onoff/parameters', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ decay_factor, on_threshold, off_threshold })
+                });
+                fetchPKParameters();
+            }
+
+            setInterval(fetchDiagnostics, 5000);
+            window.onload = function() {
+                fetchDiagnostics();
+                fetchPKParameters();
+            }
+        </script>
+    </head>
+    <body>
+        <h1>PK On/Off Control</h1>
+        <a href="/">Home</a>
+        <h2>Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updatePKParameters();">
+            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
+            <input type="number" id="half_life_minutes" step="0.00001">
+            <label for="on_threshold">On Threshold:</label>
+            <input type="number" id="on_threshold" step="0.00001">
+            <label for="off_threshold">Off Threshold:</label>
+            <input type="number" id="off_threshold" step="0.00001">
+            <button type="submit">Update Parameters</button>
+        </form>
+        <h2>Diagnostics</h2>
+        <table id="diagnostics"></table>
+    </body>
+    </html>
+    ''', common_styles=common_styles)
+
 @app.route('/api/return-mixin/diagnostics', methods=['GET'])
 def get_return_mixin_diagnostics():
     with return_mixin_lock:
@@ -267,23 +358,34 @@ def get_bwk_onoff_diagnostics():
     with bwk_onoff_lock:
         return jsonify(bwk_onoff_diagnostics)
 
+@app.route('/api/pk-onoff/diagnostics', methods=['GET'])
+def get_pk_onoff_diagnostics():
+    with pk_onoff_lock:
+        return jsonify(pk_onoff_diagnostics)
+
 @app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
 def return_mixin_parameters():
     if request.method == 'POST':
-        return_mixin_set_parameters(request.json)
-    return jsonify(return_mixin_get_parameters())
+        return_mixin.set_parameters(request.json)
+    return jsonify(return_mixin.get_parameters())
 
 @app.route('/api/bwk-onoff/parameters', methods=['GET', 'POST'])
 def bwk_onoff_parameters():
     if request.method == 'POST':
-        set_parameters(request.json)
-    return jsonify(get_parameters())
+        bwk_onoff.set_parameters(request.json)
+    return jsonify(bwk_onoff.get_parameters())
+
+@app.route('/api/pk-onoff/parameters', methods=['GET', 'POST'])
+def pk_onoff_parameters():
+    if request.method == 'POST':
+        pk_onoff.set_parameters(request.json)
+    return jsonify(pk_onoff.get_parameters())
 
 def return_mixin_control_loop_with_diagnostics():
     global return_mixin_diagnostics
     while True:
         with return_mixin_lock:
-            return_mixin_diagnostics.append(return_mixin_control_loop())
+            return_mixin_diagnostics.append(return_mixin.control_loop())
             if len(return_mixin_diagnostics) > 100:
                 return_mixin_diagnostics.pop(0)
         time.sleep(5)
@@ -292,11 +394,22 @@ def bwk_onoff_control_loop_with_diagnostics():
     global bwk_onoff_diagnostics
     while True:
         with bwk_onoff_lock:
-            diagnostics = bwk_onoff_control_loop()
+            diagnostics = bwk_onoff.control_loop()
             timestamp = diagnostics.pop('timestamp')
             bwk_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
             if len(bwk_onoff_diagnostics) > 100:
                 bwk_onoff_diagnostics.pop(0)
+        time.sleep(30)
+
+def pk_onoff_control_loop_with_diagnostics():
+    global pk_onoff_diagnostics
+    while True:
+        with pk_onoff_lock:
+            diagnostics = pk_onoff.control_loop()
+            timestamp = diagnostics.pop('timestamp')
+            pk_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
+            if len(pk_onoff_diagnostics) > 100:
+                pk_onoff_diagnostics.pop(0)
         time.sleep(30)
 
 def start_control_loops():
@@ -307,6 +420,10 @@ def start_control_loops():
     bwk_onoff_thread = threading.Thread(target=bwk_onoff_control_loop_with_diagnostics)
     bwk_onoff_thread.daemon = True
     bwk_onoff_thread.start()
+
+    pk_onoff_thread = threading.Thread(target=pk_onoff_control_loop_with_diagnostics)
+    pk_onoff_thread.daemon = True
+    pk_onoff_thread.start()
 
 if __name__ == '__main__':
     start_control_loops()
