@@ -100,9 +100,10 @@ def control_loop():
     diagnostics['pk'] = control_str(current_control_pk)
     diagnostics['pk_available'] = current_pk_available
 
-    if not current_pk_available and current_control_pk == CONTROL_ON:
-        plc.write_by_name(control_pk_name, CONTROL_OFF)
-        diagnostics['control'] = 'off'
+    if not current_pk_available:
+        if current_control_pk == CONTROL_ON:
+            plc.write_by_name(control_pk_name, CONTROL_OFF)
+            diagnostics['control'] = 'off'
         return diagnostics
 
     if current_control_pk == CONTROL_ON and off_value_ema.last >= off_threshold:
