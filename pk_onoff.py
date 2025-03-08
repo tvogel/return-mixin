@@ -100,20 +100,18 @@ def control_loop():
     diagnostics['pk'] = control_str(current_control_pk)
     diagnostics['pk_available'] = current_pk_available
 
+    new_control_pk = current_control_pk
+
     if not current_pk_available:
-        if current_control_pk == CONTROL_ON:
-            plc.write_by_name(control_pk_name, CONTROL_OFF)
-            diagnostics['control'] = 'off'
-        return diagnostics
+        new_control_pk = CONTROL_OFF
+    elif off_value_ema.last >= off_threshold:
+        new_control_pk = CONTROL_OFF
+    elif on_value_ema.last <= on_threshold:
+        new_control_pk = CONTROL_ON
 
-    if current_control_pk == CONTROL_ON and off_value_ema.last >= off_threshold:
-        plc.write_by_name(control_pk_name, CONTROL_OFF)
-        diagnostics['control'] = 'off'
-        return diagnostics
-
-    if current_control_pk == CONTROL_OFF and on_value_ema.last <= on_threshold:
-        plc.write_by_name(control_pk_name, CONTROL_ON)
-        diagnostics['control'] = 'on'
+    if new_control_pk != current_control_pk:
+        plc.write_by_name(control_pk_name, new_control_pk)
+        diagnostics['control'] = control_str(new_control_pk)
         return diagnostics
 
     diagnostics['idle'] = True
