@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template_string
 import return_mixin
 import bwk_onoff
 import pk_onoff
+import bhkw_onoff
 import threading
 import time
 
@@ -11,9 +12,11 @@ app = Flask(__name__)
 return_mixin_diagnostics = []
 bwk_onoff_diagnostics = []
 pk_onoff_diagnostics = []
+bhkw_onoff_diagnostics = []
 return_mixin_lock = threading.Lock()
 bwk_onoff_lock = threading.Lock()
 pk_onoff_lock = threading.Lock()
+bhkw_onoff_lock = threading.Lock()
 
 common_styles = '''
 <style>
@@ -70,6 +73,8 @@ def home():
         <a href="/bwk_onoff">BWK On/Off</a>
         <br>
         <a href="/pk_onoff">PK On/Off</a>
+        <br>
+        <a href="/bhkw_onoff">BHKW On/Off</a>
     </body>
     </html>
     ''', common_styles=common_styles)
@@ -348,6 +353,68 @@ def pk_onoff_index():
     </html>
     ''', common_styles=common_styles)
 
+@app.route('/bhkw_onoff', methods=['GET'])
+def bhkw_onoff_index():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>BHKW On/Off Control</title>
+        {{ common_styles|safe }}
+        <script>
+            async function fetchDiagnostics() {
+                const response = await fetch('/api/bhkw-onoff/diagnostics');
+                const data = await response.json();
+                const table = document.getElementById('diagnostics');
+                table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
+                data.reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    const tdTimestamp = document.createElement('td');
+                    tdTimestamp.innerText = row.timestamp;
+                    const tdData = document.createElement('td');
+                    tdData.innerText = JSON.stringify(row.data);
+                    tr.appendChild(tdTimestamp);
+                    tr.appendChild(tdData);
+                    table.append(tr);
+                });
+            }
+
+            async function fetchParameters() {
+                const response = await fetch('/api/bhkw-onoff/parameters');
+                const data = await response.json();
+            }
+
+            async function updateParameters() {
+                await fetch('/api/bhkw-onoff/parameters', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                });
+                fetchParameters();
+            }
+
+            setInterval(fetchDiagnostics, 5000);
+            window.onload = function() {
+                fetchDiagnostics();
+                fetchParameters();
+            }
+        </script>
+    </head>
+    <body>
+        <h1>BHKW On/Off Control</h1>
+        <a href="/">Home</a>
+        <h2>Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <button type="submit">Update Parameters</button>
+        </form>
+        <h2>Diagnostics</h2>
+        <table id="diagnostics"></table>
+    </body>
+    </html>
+    ''', common_styles=common_styles)
+
 @app.route('/api/return-mixin/diagnostics', methods=['GET'])
 def get_return_mixin_diagnostics():
     with return_mixin_lock:
@@ -362,6 +429,11 @@ def get_bwk_onoff_diagnostics():
 def get_pk_onoff_diagnostics():
     with pk_onoff_lock:
         return jsonify(pk_onoff_diagnostics)
+
+@app.route('/api/bhkw-onoff/diagnostics', methods=['GET'])
+def get_bhkw_onoff_diagnostics():
+    with bhkw_onoff_lock:
+        return jsonify(bhkw_onoff_diagnostics)
 
 @app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
 def return_mixin_parameters():
@@ -380,6 +452,12 @@ def pk_onoff_parameters():
     if request.method == 'POST':
         pk_onoff.set_parameters(request.json)
     return jsonify(pk_onoff.get_parameters())
+
+@app.route('/api/bhkw-onoff/parameters', methods=['GET', 'POST'])
+def bhkw_onoff_parameters():
+    if request.method == 'POST':
+        bhkw_onoff.set_parameters(request.json)
+    return jsonify(bhkw_onoff.get_parameters())
 
 def return_mixin_control_loop_with_diagnostics():
     global return_mixin_diagnostics
@@ -412,6 +490,17 @@ def pk_onoff_control_loop_with_diagnostics():
                 pk_onoff_diagnostics.pop(0)
         time.sleep(30)
 
+def bhkw_onoff_control_loop_with_diagnostics():
+    global bhkw_onoff_diagnostics
+    while True:
+        with bhkw_onoff_lock:
+            diagnostics = bhkw_onoff.control_loop()
+            timestamp = diagnostics.pop('timestamp')
+            bhkw_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
+            if len(bhkw_onoff_diagnostics) > 100:
+                bhkw_onoff_diagnostics.pop(0)
+        time.sleep(30)
+
 def start_control_loops():
     return_mixin_thread = threading.Thread(target=return_mixin_control_loop_with_diagnostics)
     return_mixin_thread.daemon = True
@@ -424,6 +513,10 @@ def start_control_loops():
     pk_onoff_thread = threading.Thread(target=pk_onoff_control_loop_with_diagnostics)
     pk_onoff_thread.daemon = True
     pk_onoff_thread.start()
+
+    bhkw_onoff_thread = threading.Thread(target=bhkw_onoff_control_loop_with_diagnostics)
+    bhkw_onoff_thread.daemon = True
+    bhkw_onoff_thread.start()
 
 if __name__ == '__main__':
     start_control_loops()
