@@ -3,8 +3,10 @@ import return_mixin
 import bwk_onoff
 import pk_onoff
 import bhkw_onoff
+import feed_121517
 import threading
 import time
+import asyncio
 
 app = Flask(__name__)
 
@@ -17,6 +19,9 @@ return_mixin_lock = threading.Lock()
 bwk_onoff_lock = threading.Lock()
 pk_onoff_lock = threading.Lock()
 bhkw_onoff_lock = threading.Lock()
+
+feed_121517_diagnostics = []
+feed_121517_lock = threading.Lock()
 
 common_styles = '''
 <style>
@@ -75,6 +80,8 @@ def home():
         <a href="/pk_onoff">PK On/Off</a>
         <br>
         <a href="/bhkw_onoff">BHKW On/Off</a>
+        <br>
+        <a href="/feed_121517">Feed 12/15/17</a>
     </body>
     </html>
     ''', common_styles=common_styles)
@@ -415,6 +422,140 @@ def bhkw_onoff_index():
     </html>
     ''', common_styles=common_styles)
 
+@app.route('/feed_121517', methods=['GET'])
+def feed_121517_index():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Feed 12/15/17 Control</title>
+        {{ common_styles|safe }}
+        <script>
+            async function fetchDiagnostics() {
+                const response = await fetch('/api/feed-121517/diagnostics');
+                const data = await response.json();
+                const table = document.getElementById('diagnostics');
+                table.innerHTML = `
+                    <tr><th>Timestamp</th><th colspan="8" class="thick-border">Return Values</th><th colspan="8" class="thick-border">Circulation Values</th><th colspan="2" class="thick-border">Control</th></tr>
+                    <tr>
+                        <th></th><th class="thick-border">Actual</th><th>Error</th><th>I_error</th><th>D_error</th><th>P</th><th>I</th><th>D</th><th>Control</th>
+                        <th class="thick-border">Actual</th><th>Error</th><th>I_error</th><th>D_error</th><th>P</th><th>I</th><th>D</th><th>Control</th>
+                        <th class="thick-border">Output</th><th>New Value</th>
+                    </tr>`;
+                const keys = ['timestamp', 'return.actual', 'return.error', 'return.I_error', 'return.D_error', 'return.P', 'return.I', 'return.D', 'return.control',
+                                'circulation.actual', 'circulation.error', 'circulation.I_error', 'circulation.D_error', 'circulation.P', 'circulation.I', 'circulation.D', 'circulation.control',
+                                'control_output', 'new_control_value'];
+                const digits = { 'return.D_error': 4, 'circulation.D_error': 4 };
+                function formatValue(value, digits) {
+                    return (typeof value === 'number' ? value.toFixed(digits) : value) ?? '-';
+                }
+                data.reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    keys.forEach((key) => {
+                        const td = document.createElement('td');
+                        const value = key.split('.').reduce((o, k) => (o || {})[k], row);
+                        td.innerText = formatValue(value, digits[key] ?? 2);
+                        if (key === 'return.actual' || key === 'circulation.actual' || key === 'control_output') {
+                            td.classList.add('thick-border');
+                        }
+                        tr.append(td);
+                    });
+                    table.append(tr);
+                });
+            }
+
+            function halfLifeToDecayFactor(halfLifeMinutes) {
+                if (halfLifeMinutes <= 0) {
+                    return 0;
+                }
+                return Math.pow(2, -1 / halfLifeMinutes / 60);
+            }
+
+            function decayFactorToHalfLife(decayFactor) {
+                return - Math.log(2) / Math.log(decayFactor) / 60;
+            }
+
+            async function fetchParameters() {
+                const response = await fetch('/api/feed-121517/parameters');
+                const data = await response.json();
+                document.getElementById('return_set_point').value = data.return_set_point.toFixed(2);
+                document.getElementById('circulation_set_point').value = data.circulation_set_point.toFixed(2);
+                document.getElementById('return_Kp').value = data.return_pid.Kp.toFixed(4);
+                document.getElementById('return_Ki').value = data.return_pid.Ki.toFixed(4);
+                document.getElementById('return_Kd').value = data.return_pid.Kd.toFixed(4);
+                document.getElementById('return_integration_half_life_minutes').value = decayFactorToHalfLife(data.return_pid.integration_decay_factor).toFixed(2);
+                document.getElementById('circulation_Kp').value = data.circulation_pid.Kp.toFixed(4);
+                document.getElementById('circulation_Ki').value = data.circulation_pid.Ki.toFixed(4);
+                document.getElementById('circulation_Kd').value = data.circulation_pid.Kd.toFixed(4);
+                document.getElementById('circulation_integration_half_life_minutes').value = decayFactorToHalfLife(data.circulation_pid.integration_decay_factor).toFixed(2);
+            }
+
+            async function updateParameters() {
+                const return_set_point = Number(document.getElementById('return_set_point').value);
+                const circulation_set_point = Number(document.getElementById('circulation_set_point').value);
+                const return_Kp = Number(document.getElementById('return_Kp').value);
+                const return_Ki = Number(document.getElementById('return_Ki').value);
+                const return_Kd = Number(document.getElementById('return_Kd').value);
+                const return_integration_half_life_minutes = Number(document.getElementById('return_integration_half_life_minutes').value);
+                const circulation_Kp = Number(document.getElementById('circulation_Kp').value);
+                const circulation_Ki = Number(document.getElementById('circulation_Ki').value);
+                const circulation_Kd = Number(document.getElementById('circulation_Kd').value);
+                const circulation_integration_half_life_minutes = Number(document.getElementById('circulation_integration_half_life_minutes').value);
+                await fetch('/api/feed-121517/parameters', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        return_set_point,
+                        circulation_set_point,
+                        return_pid: { Kp: return_Kp, Ki: return_Ki, Kd: return_Kd, integration_decay_factor: halfLifeToDecayFactor(return_integration_half_life_minutes) },
+                        circulation_pid: { Kp: circulation_Kp, Ki: circulation_Ki, Kd: circulation_Kd, integration_decay_factor: halfLifeToDecayFactor(circulation_integration_half_life_minutes) }
+                    })
+                });
+                fetchParameters();
+            }
+
+            setInterval(fetchDiagnostics, 5000);
+            window.onload = function() {
+                fetchDiagnostics();
+                fetchParameters();
+            }
+        </script>
+    </head>
+    <body>
+        <h1>Feed 12/15/17 Control</h1>
+        <a href="/">Home</a>
+        <h2>PID Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="return_set_point">Return Set Point:</label>
+            <input type="number" id="return_set_point" step="0.00001">
+            <label for="circulation_set_point">Circulation Set Point:</label>
+            <input type="number" id="circulation_set_point" step="0.00001">
+            <label for="return_Kp">Return Kp:</label>
+            <input type="number" id="return_Kp" step="0.00001">
+            <label for="return_Ki">Return Ki:</label>
+            <input type="number" id="return_Ki" step="0.00001">
+            <label for="return_Kd">Return Kd:</label>
+            <input type="number" id="return_Kd" step="0.00001">
+            <label for="return_integration_half_life_minutes">Return Integration Half-Life (minutes):</label>
+            <input type="number" id="return_integration_half_life_minutes" step="0.00001">
+            <label for="circulation_Kp">Circulation Kp:</label>
+            <input type="number" id="circulation_Kp" step="0.00001">
+            <label for="circulation_Ki">Circulation Ki:</label>
+            <input type="number" id="circulation_Ki" step="0.00001">
+            <label for="circulation_Kd">Circulation Kd:</label>
+            <input type="number" id="circulation_Kd" step="0.00001">
+            <label for="circulation_integration_half_life_minutes">Circulation Integration Half-Life (minutes):</label>
+            <input type="number" id="circulation_integration_half_life_minutes" step="0.00001">
+            <button type="submit">Update PID</button>
+        </form>
+        <h2>Diagnostics</h2>
+        <table id="diagnostics"></table>
+    </body>
+    </html>
+    ''', common_styles=common_styles)
+
 @app.route('/api/return-mixin/diagnostics', methods=['GET'])
 def get_return_mixin_diagnostics():
     with return_mixin_lock:
@@ -434,6 +575,11 @@ def get_pk_onoff_diagnostics():
 def get_bhkw_onoff_diagnostics():
     with bhkw_onoff_lock:
         return jsonify(bhkw_onoff_diagnostics)
+
+@app.route('/api/feed-121517/diagnostics', methods=['GET'])
+def get_feed_121517_diagnostics():
+    with feed_121517_lock:
+        return jsonify(feed_121517_diagnostics)
 
 @app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
 def return_mixin_parameters():
@@ -458,6 +604,25 @@ def bhkw_onoff_parameters():
     if request.method == 'POST':
         bhkw_onoff.set_parameters(request.json)
     return jsonify(bhkw_onoff.get_parameters())
+
+@app.route('/api/feed-121517/parameters', methods=['GET', 'POST'])
+def feed_121517_parameters():
+    if request.method == 'POST':
+        feed_121517.set_parameters(request.json)
+    return jsonify(feed_121517.get_parameters())
+
+async def feed_121517_combined_loop():
+    await feed_121517.setup_mqtt()  # Start MQTT setup
+    while True:
+        diagnostics = await feed_121517.control_loop()
+        with feed_121517_lock:
+            feed_121517_diagnostics.append(diagnostics)
+            if len(feed_121517_diagnostics) > 1000:
+                feed_121517_diagnostics.pop(0)
+        await asyncio.sleep(30)
+
+def feed_121517_control_loop_with_diagnostics():
+    asyncio.run(feed_121517_combined_loop())
 
 def return_mixin_control_loop_with_diagnostics():
     global return_mixin_diagnostics
@@ -517,6 +682,10 @@ def start_control_loops():
     bhkw_onoff_thread = threading.Thread(target=bhkw_onoff_control_loop_with_diagnostics)
     bhkw_onoff_thread.daemon = True
     bhkw_onoff_thread.start()
+
+    feed_121517_thread = threading.Thread(target=feed_121517_control_loop_with_diagnostics)
+    feed_121517_thread.daemon = True
+    feed_121517_thread.start()
 
 if __name__ == '__main__':
     start_control_loops()
