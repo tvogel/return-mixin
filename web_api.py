@@ -369,6 +369,17 @@ def bhkw_onoff_index():
         <title>BHKW On/Off Control</title>
         {{ common_styles|safe }}
         <script>
+            function halfLifeToDecayFactor(halfLifeMinutes) {
+                if (halfLifeMinutes <= 0) {
+                    return 0;
+                }
+                return Math.pow(2, -1 / halfLifeMinutes / 60);
+            }
+
+            function decayFactorToHalfLife(decayFactor) {
+                return - Math.log(2) / Math.log(decayFactor) / 60;
+            }
+
             async function fetchDiagnostics() {
                 const response = await fetch('/api/bhkw-onoff/diagnostics');
                 const data = await response.json();
@@ -389,6 +400,9 @@ def bhkw_onoff_index():
             async function fetchParameters() {
                 const response = await fetch('/api/bhkw-onoff/parameters');
                 const data = await response.json();
+                document.getElementById('on_threshold').value = data.on_threshold;
+                document.getElementById('off_threshold').value = data.off_threshold;
+                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
             }
 
             async function updateParameters() {
@@ -397,7 +411,11 @@ def bhkw_onoff_index():
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({})
+                    body: JSON.stringify({
+                        decay_factor: halfLifeToDecayFactor(Number(document.getElementById('half_life_minutes').value)),
+                        on_threshold: Number(document.getElementById('on_threshold').value),
+                        off_threshold: Number(document.getElementById('off_threshold').value)
+                    })
                 });
                 fetchParameters();
             }
@@ -414,6 +432,12 @@ def bhkw_onoff_index():
         <a href="/">Home</a>
         <h2>Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
+            <input type="number" id="half_life_minutes" step="0.00001">
+            <label for="on_threshold">On Threshold:</label>
+            <input type="number" id="on_threshold" step="0.00001">
+            <label for="off_threshold">Off Threshold:</label>
+            <input type="number" id="off_threshold" step="0.00001">
             <button type="submit">Update Parameters</button>
         </form>
         <h2>Diagnostics</h2>

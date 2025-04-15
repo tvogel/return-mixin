@@ -6,6 +6,7 @@ import json
 import os
 import asyncio
 from gmqtt import Client as MQTTClient
+from ema import EMA
 
 actual_return_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_RL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
@@ -59,28 +60,6 @@ async def setup_mqtt():
   mqtt_client.on_message = on_message
   await mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT)
   mqtt_client.subscribe(MQTT_TOPIC)
-
-class EMA:
-  def __init__(self, decay_factor):
-    self.decay_factor = decay_factor
-    self.last = None
-
-  def update(self, value, dt):
-    if self.last is None:
-      self.last = value
-      return self.last
-    with parameter_lock:
-      last_weight = self.decay_factor ** dt
-    self.last = last_weight * self.last + (1 - last_weight) * value
-    return self.last
-
-  def parameters(self):
-    return {
-      'decay_factor': self.decay_factor
-    }
-
-  def set_parameters(self, params):
-    self.decay_factor = params.get('decay_factor', self.decay_factor)
 
 class FD1:
   def __init__(self):
@@ -193,18 +172,19 @@ async def control_loop():
   last_update = now
 
   try:
-    actual_return_value = plc.read_by_name(actual_return_value_name)
-    control_output_return = return_pid.update(return_set_point - actual_return_value, dt)
+    with parameter_lock:
+      actual_return_value = plc.read_by_name(actual_return_value_name)
+      control_output_return = return_pid.update(return_set_point - actual_return_value, dt)
 
-    control_output_circulation = None
-    if actual_circulation:
-      control_output_circulation = circulation_pid.update(circulation_set_point - actual_circulation['value'], dt)
+      control_output_circulation = None
+      if actual_circulation:
+        control_output_circulation = circulation_pid.update(circulation_set_point - actual_circulation['value'], dt)
 
-    control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
+      control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
 
-    current_control_value = plc.read_by_name(control_value_name)
-    new_control_value = control_output * dt + current_control_value if dt else current_control_value
-    new_control_value = bounded(new_control_value, *control_range)
+      current_control_value = plc.read_by_name(control_value_name)
+      new_control_value = control_output * dt + current_control_value if dt else current_control_value
+      new_control_value = bounded(new_control_value, *control_range)
 
     diagnostics |= {
       'dt': dt,
@@ -258,5 +238,3 @@ load_parameters()
 
 if __name__ == '__main__':
   asyncio.run(main(lambda: False))
-
-
