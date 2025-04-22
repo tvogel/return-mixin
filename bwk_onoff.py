@@ -127,6 +127,7 @@ def control_loop():
         return diagnostics
 
   except Exception as e:
+    diagnostics['exception'] = repr(e)
     print(e)
 
   diagnostics['idle'] = True

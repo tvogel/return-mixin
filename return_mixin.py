@@ -117,6 +117,7 @@ def control_loop():
     last_control = new_control_value
 
   except Exception as e:
+    diagnostics['exception'] = repr(e)
     print(e)
 
   return diagnostics
