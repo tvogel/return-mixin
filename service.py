@@ -17,6 +17,7 @@ class PyADSService(win32serviceutil.ServiceFramework):
     _svc_name_ = "PyADSService"
     _svc_display_name_ = "PyADS Control Loop Service"
     _svc_description_ = "Runs the PyADS control loop as a Windows service."
+    _svc_deps_ = [ 'tcsyssrv' ]
 
     def __init__(self, args):
         win32serviceutil.ServiceFramework.__init__(self, args)
