@@ -88,7 +88,8 @@ def control_loop():
 
     error = actual_value - set_point
     I_error = ema(I_error, error, dt, integration_decay_factor)
-    D_error = fd1(last_value, error, dt)
+    ema_D_decay_factor = 0.5 ** (1/5)
+    D_error = ema(D_error, fd1(last_value, error, dt), dt, ema_D_decay_factor)
 
     with parameter_lock:
       P = Kp * error
