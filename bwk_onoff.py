@@ -9,6 +9,8 @@ actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
 control_pk_name = 'PRG_WV.FB_Pelletkessel.BWS.iStellung'
 pk_available_name = 'PRG_WV.FB_Pelletkessel_AT_Gw.bQ'
+pk_stoerung_name = 'PRG_WV.FB_Pelletkessel.bStoerung'
+
 CONTROL_AUTO = 1
 CONTROL_OFF = 2
 CONTROL_ON = 3
@@ -79,6 +81,8 @@ def control_loop():
     current_control_bwk = plc.read_by_name(control_bwk_name)
     current_control_pk = plc.read_by_name(control_pk_name)
     current_pk_available = plc.read_by_name(pk_available_name)
+    current_pk_stoerung = plc.read_by_name(pk_stoerung_name)
+
     now = datetime.datetime.now()
     diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
 
@@ -115,7 +119,7 @@ def control_loop():
         diagnostics['auto_off'] = 'expired'
         diagnostics['pk_control'] = control_str(current_control_pk)
         diagnostics['pk_available'] = current_pk_available
-        if not current_pk_available:
+        if current_pk_stoerung or not current_pk_available:
           diagnostics['control_bwk'] = 'ignored (PK not available)'
           return diagnostics
         plc.write_by_name(control_bwk_name, CONTROL_OFF)

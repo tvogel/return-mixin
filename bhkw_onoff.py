@@ -17,6 +17,7 @@ altitude = 31
 
 control_bhkw_name = 'PRG_WV.FB_BHKW.BWS.iStellung'
 pk_available_name = 'PRG_WV.FB_Pelletkessel_AT_Gw.bQ'
+pk_stoerung_name = 'PRG_WV.FB_Pelletkessel.bStoerung'
 
 on1_value_name = 'PRG_HE.FB_Speicher_1_Temp_oben.fOut'
 on2_value_name = 'PRG_HE.FB_Speicher_2_Temp_oben.fOut'
@@ -123,9 +124,11 @@ def control_loop():
       diagnostics['solar_available'] = solar_available
       pk_available = plc.read_by_name(pk_available_name)
       diagnostics['pk_available'] = pk_available
+      pk_stoerung = plc.read_by_name(pk_stoerung_name)
+      diagnostics['pk_stoerung'] = pk_stoerung
       current_bhkw = swap_control(plc.read_by_name(control_bhkw_name))
       diagnostics['bhkw'] = control_str(current_bhkw)
-      new_bhkw = determine_control_value(current_bhkw, solar_available, pk_available, on_value, off_value)
+      new_bhkw = determine_control_value(current_bhkw, solar_available, pk_available and not pk_stoerung, on_value, off_value)
 
     if current_bhkw != new_bhkw:
       plc.write_by_name(control_bhkw_name, swap_control(new_bhkw))

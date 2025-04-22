@@ -11,6 +11,8 @@ off1_value_name = 'PRG_HE.FB_Speicher_1_Temp_unten.fOut'
 off2_value_name = 'PRG_WV.FB_BHKW_RL_Temp.fOut'
 control_pk_name = 'PRG_WV.FB_Pelletkessel.BWS.iStellung'
 pk_available_name = 'PRG_WV.FB_Pelletkessel_AT_Gw.bQ'
+pk_stoerung_name = 'PRG_WV.FB_Pelletkessel.bStoerung'
+
 CONTROL_AUTO = 1
 CONTROL_OFF = 2
 CONTROL_ON = 3
@@ -88,6 +90,8 @@ def control_loop():
     off2_value = plc.read_by_name(off2_value_name)
     current_control_pk = plc.read_by_name(control_pk_name)
     current_pk_available = plc.read_by_name(pk_available_name)
+    current_pk_stoerung = plc.read_by_name(pk_stoerung_name)
+
     now = datetime.datetime.now()
     diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
 
@@ -99,10 +103,12 @@ def control_loop():
     diagnostics['off_value_ema'] = round(off_value_ema.last, 2)
     diagnostics['pk'] = control_str(current_control_pk)
     diagnostics['pk_available'] = current_pk_available
+    if current_pk_stoerung:
+        diagnostics['stoerung'] = True
 
     new_control_pk = current_control_pk
 
-    if not current_pk_available:
+    if current_pk_stoerung or not current_pk_available:
         new_control_pk = CONTROL_OFF
     elif off_value_ema.last >= off_threshold:
         new_control_pk = CONTROL_OFF
