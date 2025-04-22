@@ -6,6 +6,7 @@ import sys
 import time
 import os
 import threading
+import pyads
 
 from web_api import start_control_loops, app
 
@@ -36,7 +37,23 @@ class PyADSService(win32serviceutil.ServiceFramework):
         )
         self.main()
 
+    def wait_for_twincat_route(self):
+        plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
+        plc.open()
+        test_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
+
+        while not self.stop_requested:
+            try:
+                plc.read_by_name(test_value_name)
+                print('TwinCat route is up')
+                break
+            except pyads.ADSError:
+                print('Waiting 5 seconds for TwinCat route')
+                time.sleep(5)
+
+
     def main(self):
+        self.wait_for_twincat_route()
         start_control_loops()
         api_thread = threading.Thread(target=app.run, kwargs={'host': 'localhost', 'port': 5000})
         api_thread.daemon = True

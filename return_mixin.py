@@ -25,11 +25,10 @@ plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
 plc.open()
 
 last_value = None
-last_control = plc.read_by_name(control_value_name) \
-  if plc.read_by_name(control_onoff_name) == CONTROL_ON \
-  else control_range[0]
+last_control = None
 last_update = None
 I_error = None
+D_error = None
 
 PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'return_mixin_params.json')
 
@@ -73,8 +72,15 @@ def get_parameters():
     return {'Kp': Kp, 'Ki': Ki, 'Kd': Kd, 'set_point': set_point, 'off_range': -control_range[0], 'decay_factor': integration_decay_factor}
 
 def control_loop():
-  global last_value, last_control, last_update, I_error, Kp, Ki, Kd
+  global last_value, last_control, last_update, I_error, D_error, Kp, Ki, Kd
+
   diagnostics = {}
+
+  if last_control is None:
+    last_control = plc.read_by_name(control_value_name) \
+      if plc.read_by_name(control_onoff_name) == CONTROL_ON \
+      else control_range[0]
+
   try:
     actual_value = plc.read_by_name(actual_value_name)
     now = datetime.datetime.now()
