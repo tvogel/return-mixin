@@ -4,19 +4,11 @@ import time
 import threading
 import json
 import os
+import control
+from pk import PK
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
-control_pk_name = 'PRG_WV.FB_Pelletkessel.BWS.iStellung'
-pk_available_name = 'PRG_WV.FB_Pelletkessel_AT_Gw.bQ'
-pk_stoerung_name = 'PRG_WV.FB_Pelletkessel.bStoerung'
-
-CONTROL_AUTO = 1
-CONTROL_OFF = 2
-CONTROL_ON = 3
-
-def control_str(control):
-  return {CONTROL_AUTO: 'auto', CONTROL_OFF: 'off', CONTROL_ON: 'on'}.get(control, control)
 
 # Lock for parameters
 parameter_lock = threading.Lock()
@@ -79,9 +71,8 @@ def control_loop():
   try:
     actual_value = plc.read_by_name(actual_value_name)
     current_control_bwk = plc.read_by_name(control_bwk_name)
-    current_control_pk = plc.read_by_name(control_pk_name)
-    current_pk_available = plc.read_by_name(pk_available_name)
-    current_pk_stoerung = plc.read_by_name(pk_stoerung_name)
+    pk = PK(plc)
+    pk.read()
 
     now = datetime.datetime.now()
     diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
@@ -91,25 +82,25 @@ def control_loop():
     value_ema.update(actual_value, dt)
     diagnostics['value'] = round(actual_value, 2)
     diagnostics['value_ema'] = round(value_ema.last, 2)
-    diagnostics['bwk'] = control_str(current_control_bwk)
+    diagnostics['bwk'] = control.control_str(current_control_bwk)
     if auto_off_dt:
       diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
 
-    if current_control_bwk != CONTROL_ON:
+    if current_control_bwk != control.ON:
       if value_ema.last < threshold:
-        plc.write_by_name(control_bwk_name, CONTROL_AUTO)
+        plc.write_by_name(control_bwk_name, control.AUTO)
         diagnostics['control_bwk'] = 'auto'
         auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
         diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
         return diagnostics
 
-    if current_control_bwk == CONTROL_OFF:
+    if current_control_bwk == control.OFF:
       if auto_off_dt is not None:
         auto_off_dt = None
         diagnostics['auto_off'] = 'superceded'
         return diagnostics
 
-    if current_control_bwk == CONTROL_AUTO:
+    if current_control_bwk == control.AUTO:
       if auto_off_dt is None:
         auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
         diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
@@ -117,12 +108,11 @@ def control_loop():
       if now >= auto_off_dt:
         auto_off_dt = None
         diagnostics['auto_off'] = 'expired'
-        diagnostics['pk_control'] = control_str(current_control_pk)
-        diagnostics['pk_available'] = current_pk_available
-        if current_pk_stoerung or not current_pk_available:
+        diagnostics['pk'] = pk.diagnostics()
+        if not pk.is_available():
           diagnostics['control_bwk'] = 'ignored (PK not available)'
           return diagnostics
-        plc.write_by_name(control_bwk_name, CONTROL_OFF)
+        plc.write_by_name(control_bwk_name, control.OFF)
         diagnostics['control_bwk'] = 'off'
         return diagnostics
 

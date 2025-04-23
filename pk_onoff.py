@@ -4,47 +4,19 @@ import time
 import threading
 import json
 import os
-
-on1_value_name = 'PRG_HE.FB_Speicher_1_Temp_oben.fOut'
-on2_value_name = 'PRG_HE.FB_Speicher_2_Temp_oben.fOut'
-off1_value_name = 'PRG_HE.FB_Speicher_1_Temp_unten.fOut'
-off2_value_name = 'PRG_WV.FB_BHKW_RL_Temp.fOut'
-control_pk_name = 'PRG_WV.FB_Pelletkessel.BWS.iStellung'
-pk_available_name = 'PRG_WV.FB_Pelletkessel_AT_Gw.bQ'
-pk_stoerung_name = 'PRG_WV.FB_Pelletkessel.bStoerung'
-
-CONTROL_AUTO = 1
-CONTROL_OFF = 2
-CONTROL_ON = 3
-
-def control_str(control):
-  return {CONTROL_AUTO: 'auto', CONTROL_OFF: 'off', CONTROL_ON: 'on'}.get(control, control)
+import control
+from pk import PK
+from buffer_tank import BufferTank
 
 # Lock for parameters
 parameter_lock = threading.Lock()
-on_threshold = 64 # degrees
-off_threshold = 58 # degrees
 
 plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
 plc.open()
 
-class EMA:
-  def __init__(self, decay_factor):
-    self.decay_factor = decay_factor
-    self.last = None
-
-  def update(self, value, dt):
-    if self.last is None:
-      self.last = value
-      return self.last
-    with parameter_lock:
-      last_weight = self.decay_factor ** dt
-    self.last = last_weight * self.last + (1 - last_weight) * value
-    return self.last
+buffer_tank = BufferTank(plc, 64, 58)
 
 last_update_dt = None
-on_value_ema = EMA(0.5 ** (1/60)) # 50% per minute
-off_value_ema = EMA(0.5 ** (1/60)) # 50% per minute
 
 PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'pk_onoff_params.json')
 
@@ -62,62 +34,44 @@ def save_parameters():
     json.dump(params, f)
 
 def set_parameters(params):
-  global on_value_ema, off_value_ema, on_threshold, off_threshold
   with parameter_lock:
-    on_value_ema.decay_factor = params.get('decay_factor', on_value_ema.decay_factor)
-    off_value_ema.decay_factor = params.get('decay_factor', off_value_ema.decay_factor)
-    on_threshold = params.get('on_threshold', on_threshold)
-    off_threshold = params.get('off_threshold', off_threshold)
+    buffer_tank.set_parameters(params)
   save_parameters()
 
 def get_parameters():
   with parameter_lock:
-    return {
-        'decay_factor': on_value_ema.decay_factor,
-        'on_threshold': on_threshold,
-        'off_threshold': off_threshold
-    }
+    return buffer_tank.parameters()
 
 def control_loop():
-  global last_update_dt, on_value_ema, off_value_ema
+  global last_update_dt
   diagnostics = {}
   now = datetime.datetime.now()
   diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+  dt = (now - last_update_dt).total_seconds() if last_update_dt else None
+
   try:
-    on1_value = plc.read_by_name(on1_value_name)
-    on2_value = plc.read_by_name(on2_value_name)
-    off1_value = plc.read_by_name(off1_value_name)
-    off2_value = plc.read_by_name(off2_value_name)
-    current_control_pk = plc.read_by_name(control_pk_name)
-    current_pk_available = plc.read_by_name(pk_available_name)
-    current_pk_stoerung = plc.read_by_name(pk_stoerung_name)
+    pk = PK(plc)
+    pk.read()
 
     now = datetime.datetime.now()
     diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
 
-    dt = (now - last_update_dt).total_seconds() if last_update_dt else None
+    buffer_tank.update(dt)
+
     last_update_dt = now
-    on_value_ema.update(min(on1_value, on2_value), dt)
-    off_value_ema.update(max(off1_value, off2_value), dt)
-    diagnostics['on_value_ema'] = round(on_value_ema.last, 2)
-    diagnostics['off_value_ema'] = round(off_value_ema.last, 2)
-    diagnostics['pk'] = control_str(current_control_pk)
-    diagnostics['pk_available'] = current_pk_available
-    if current_pk_stoerung:
-        diagnostics['stoerung'] = True
 
-    new_control_pk = current_control_pk
+    diagnostics |= buffer_tank.diagnostics()
+    diagnostics['pk'] = pk.diagnostics()
 
-    if current_pk_stoerung or not current_pk_available:
-        new_control_pk = CONTROL_OFF
-    elif off_value_ema.last >= off_threshold:
-        new_control_pk = CONTROL_OFF
-    elif on_value_ema.last <= on_threshold:
-        new_control_pk = CONTROL_ON
+    new_control_pk = pk.control
 
-    if new_control_pk != current_control_pk:
-        plc.write_by_name(control_pk_name, new_control_pk)
-        diagnostics['control'] = control_str(new_control_pk)
+    if not pk.is_available():
+        new_control_pk = control.OFF
+    elif (buffer_tank_control := buffer_tank.get_control()) != None:
+        new_control_pk = buffer_tank_control
+
+    if pk.set_control(new_control_pk):
+        diagnostics['control'] = control.control_str(new_control_pk)
         return diagnostics
 
     diagnostics['idle'] = True
