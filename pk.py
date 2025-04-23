@@ -25,7 +25,7 @@ class PK:
   def set_control(self, new_control):
     if (self.control == new_control):
       return False
-    self.plc.write_by_name(control_pk_name, new_control)
+    self.plc.write_by_name(control_name, new_control)
     self.control = new_control
     return True
 
