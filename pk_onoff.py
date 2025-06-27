@@ -17,6 +17,7 @@ parameter_lock = threading.Lock()
 plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
 plc.open()
 
+enabled = True
 buffer_tank = BufferTank(plc, 64, 58)
 
 last_update_dt = None
@@ -37,13 +38,15 @@ def save_parameters():
     json.dump(params, f)
 
 def set_parameters(params):
+  global enabled
   with parameter_lock:
+    enabled = params.get('enabled', enabled)
     buffer_tank.set_parameters(params)
   save_parameters()
 
 def get_parameters():
   with parameter_lock:
-    return buffer_tank.parameters()
+    return { 'enabled': enabled } | buffer_tank.parameters()
 
 def control_loop():
   global last_update_dt
@@ -51,6 +54,10 @@ def control_loop():
   now = datetime.datetime.now()
   diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
   dt = (now - last_update_dt).total_seconds() if last_update_dt else None
+
+  if not enabled:
+    diagnostics['disabled'] = True
+    return diagnostics
 
   try:
     pk = PK(plc)

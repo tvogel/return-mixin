@@ -143,9 +143,12 @@ def save_parameters():
   with open(PARAMS_FILE, 'w') as f:
     json.dump(params, f)
 
+enabled = True
+
 def set_parameters(params):
-  global return_set_point, circulation_set_point, return_pid
+  global return_set_point, circulation_set_point, return_pid, enabled
   with parameter_lock:
+    enabled = params.get('enabled', enabled)
     return_set_point = params.get('return_set_point', return_set_point)
     circulation_set_point = params.get('circulation_set_point', circulation_set_point)
     return_pid.set_parameters(params.get('return_pid', return_pid.parameters()))
@@ -155,6 +158,7 @@ def set_parameters(params):
 def get_parameters():
   with parameter_lock:
     return {
+        'enabled': enabled,
         'return_set_point': return_set_point,
         'circulation_set_point': circulation_set_point,
         'return_pid': return_pid.parameters(),
@@ -165,11 +169,15 @@ def bounded(value, min_value, max_value):
   return max(min(value, max_value), min_value)
 
 async def control_loop():
-  global last_control, last_update, actual_circulation
+  global last_control, last_update, actual_circulation, enabled
 
   diagnostics = {}
   now = datetime.datetime.now()
   diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+
+  if not enabled:
+    diagnostics['disabled'] = True
+    return diagnostics
 
   dt = (now - last_update).total_seconds() if last_update else None
   last_update = now

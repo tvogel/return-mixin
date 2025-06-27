@@ -21,6 +21,8 @@ control_bhkw_name = 'PRG_WV.FB_BHKW.BWS.iStellung'
 
 last_update = None
 
+enabled = True
+
 def solar_is_available(now = datetime.datetime.now(), offset = datetime.timedelta(hours=2)):
   sun = SunTimes(longitude, latitude, altitude)
   now = now.astimezone()
@@ -52,13 +54,15 @@ def save_parameters():
     json.dump(params, f)
 
 def set_parameters(params):
+  global enabled
   with parameter_lock:
+    enabled = params.get('enabled', enabled)
     buffer_tank.set_parameters(params)
   save_parameters()
 
 def get_parameters():
   with parameter_lock:
-    return buffer_tank.parameters()
+    return { 'enabled': enabled } | buffer_tank.parameters()
 
 def determine_control_value(current, solar_available, pk_available):
   if not solar_available:
@@ -71,12 +75,15 @@ def determine_control_value(current, solar_available, pk_available):
 
 def control_loop():
   global last_update
-
   diagnostics = {}
   now = datetime.datetime.now()
   dt = (now - last_update).total_seconds() if last_update else None
   last_update = now
   diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+
+  if not enabled:
+    diagnostics['disabled'] = True
+    return diagnostics
 
   try:
     with parameter_lock:

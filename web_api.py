@@ -139,6 +139,7 @@ def index():
                 document.getElementById('set_point').value = data.set_point;
                 document.getElementById('off_range').value = data.off_range;
                 document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
+                document.getElementById('enabled').checked = data.enabled !== false;
             }
 
             async function updateParameters() {
@@ -149,12 +150,13 @@ def index():
                 const off_range = Number(document.getElementById('off_range').value);
                 const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
                 const decay_factor = halfLifeToDecayFactor(half_life_minutes);
+                const enabled = document.getElementById('enabled').checked;
                 await fetch('/api/return-mixin/parameters', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ Kp, Ki, Kd, set_point, off_range, decay_factor })
+                    body: JSON.stringify({ Kp, Ki, Kd, set_point, off_range, decay_factor, enabled })
                 });
                 fetchParameters();
             }
@@ -171,6 +173,8 @@ def index():
         <a href="/">Home</a>
         <h2>PID Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
             <label for="Kp">Kp:</label>
             <input type="number" id="Kp" step="0.00001">
             <label for="Ki">Ki:</label>
@@ -234,6 +238,7 @@ def bwk_onoff_index():
                 document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
                 document.getElementById('threshold').value = data.threshold;
                 document.getElementById('auto_duration_minutes').value = data.auto_duration_minutes;
+                document.getElementById('enabled').checked = data.enabled !== false;
             }
 
             async function updateBWKParameters() {
@@ -241,12 +246,13 @@ def bwk_onoff_index():
                 const decay_factor = halfLifeToDecayFactor(half_life_minutes);
                 const threshold = Number(document.getElementById('threshold').value);
                 const auto_duration_minutes = Number(document.getElementById('auto_duration_minutes').value);
+                const enabled = document.getElementById('enabled').checked;
                 await fetch('/api/bwk-onoff/parameters', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ decay_factor, threshold, auto_duration_minutes })
+                    body: JSON.stringify({ decay_factor, threshold, auto_duration_minutes, enabled })
                 });
                 fetchBWKParameters();
             }
@@ -263,6 +269,8 @@ def bwk_onoff_index():
         <a href="/">Home</a>
         <h2>Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updateBWKParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
             <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
             <input type="number" id="half_life_minutes" step="0.00001">
             <label for="threshold">Threshold:</label>
@@ -320,6 +328,7 @@ def pk_onoff_index():
                 document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
                 document.getElementById('on_threshold').value = data.on_threshold;
                 document.getElementById('off_threshold').value = data.off_threshold;
+                document.getElementById('enabled').checked = data.enabled !== false;
             }
 
             async function updatePKParameters() {
@@ -327,12 +336,13 @@ def pk_onoff_index():
                 const decay_factor = halfLifeToDecayFactor(half_life_minutes);
                 const on_threshold = Number(document.getElementById('on_threshold').value);
                 const off_threshold = Number(document.getElementById('off_threshold').value);
+                const enabled = document.getElementById('enabled').checked;
                 await fetch('/api/pk-onoff/parameters', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ decay_factor, on_threshold, off_threshold })
+                    body: JSON.stringify({ decay_factor, on_threshold, off_threshold, enabled })
                 });
                 fetchPKParameters();
             }
@@ -349,6 +359,8 @@ def pk_onoff_index():
         <a href="/">Home</a>
         <h2>Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updatePKParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
             <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
             <input type="number" id="half_life_minutes" step="0.00001">
             <label for="on_threshold">On Threshold:</label>
@@ -406,6 +418,7 @@ def bhkw_onoff_index():
                 document.getElementById('on_threshold').value = data.on_threshold;
                 document.getElementById('off_threshold').value = data.off_threshold;
                 document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
+                document.getElementById('enabled').checked = data.enabled !== false;
             }
 
             async function updateParameters() {
@@ -417,7 +430,8 @@ def bhkw_onoff_index():
                     body: JSON.stringify({
                         decay_factor: halfLifeToDecayFactor(Number(document.getElementById('half_life_minutes').value)),
                         on_threshold: Number(document.getElementById('on_threshold').value),
-                        off_threshold: Number(document.getElementById('off_threshold').value)
+                        off_threshold: Number(document.getElementById('off_threshold').value),
+                        enabled: document.getElementById('enabled').checked
                     })
                 });
                 fetchParameters();
@@ -435,6 +449,8 @@ def bhkw_onoff_index():
         <a href="/">Home</a>
         <h2>Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
             <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
             <input type="number" id="half_life_minutes" step="0.00001">
             <label for="on_threshold">On Threshold:</label>
@@ -515,6 +531,7 @@ def feed_121517_index():
                 document.getElementById('circulation_Ki').value = data.circulation_pid.Ki.toFixed(4);
                 document.getElementById('circulation_Kd').value = data.circulation_pid.Kd.toFixed(4);
                 document.getElementById('circulation_integration_half_life_minutes').value = decayFactorToHalfLife(data.circulation_pid.integration_decay_factor).toFixed(2);
+                document.getElementById('enabled').checked = data.enabled !== false;
             }
 
             async function updateParameters() {
@@ -528,6 +545,7 @@ def feed_121517_index():
                 const circulation_Ki = Number(document.getElementById('circulation_Ki').value);
                 const circulation_Kd = Number(document.getElementById('circulation_Kd').value);
                 const circulation_integration_half_life_minutes = Number(document.getElementById('circulation_integration_half_life_minutes').value);
+                const enabled = document.getElementById('enabled').checked;
                 await fetch('/api/feed-121517/parameters', {
                     method: 'POST',
                     headers: {
@@ -537,7 +555,8 @@ def feed_121517_index():
                         return_set_point,
                         circulation_set_point,
                         return_pid: { Kp: return_Kp, Ki: return_Ki, Kd: return_Kd, integration_decay_factor: halfLifeToDecayFactor(return_integration_half_life_minutes) },
-                        circulation_pid: { Kp: circulation_Kp, Ki: circulation_Ki, Kd: circulation_Kd, integration_decay_factor: halfLifeToDecayFactor(circulation_integration_half_life_minutes) }
+                        circulation_pid: { Kp: circulation_Kp, Ki: circulation_Ki, Kd: circulation_Kd, integration_decay_factor: halfLifeToDecayFactor(circulation_integration_half_life_minutes) },
+                        enabled
                     })
                 });
                 fetchParameters();
@@ -553,8 +572,10 @@ def feed_121517_index():
     <body>
         <h1>Feed 12/15/17 Control</h1>
         <a href="/">Home</a>
-        <h2>PID Parameters</h2>
+        <h2>Parameters</h2>
         <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
             <label for="return_set_point">Return Set Point:</label>
             <input type="number" id="return_set_point" step="0.00001">
             <label for="circulation_set_point">Circulation Set Point:</label>

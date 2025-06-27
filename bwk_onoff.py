@@ -54,9 +54,12 @@ def save_parameters():
   with open(PARAMS_FILE, 'w') as f:
     json.dump(params, f)
 
+enabled = True
+
 def set_parameters(params):
-  global value_ema, threshold, auto_duration_minutes
+  global enabled, threshold, auto_duration_minutes
   with parameter_lock:
+    enabled = params.get('enabled', enabled)
     value_ema.decay_factor = params.get('decay_factor', value_ema.decay_factor)
     threshold = params.get('threshold', threshold)
     auto_duration_minutes = params.get('auto_duration_minutes', auto_duration_minutes)
@@ -64,13 +67,16 @@ def set_parameters(params):
 
 def get_parameters():
   with parameter_lock:
-    return {'decay_factor': value_ema.decay_factor, 'threshold': threshold, 'auto_duration_minutes': auto_duration_minutes}
+    return {'enabled': enabled, 'decay_factor': value_ema.decay_factor, 'threshold': threshold, 'auto_duration_minutes': auto_duration_minutes}
 
 def control_loop():
   global last_update_dt, value_ema, auto_off_dt
   diagnostics = {}
   now = datetime.datetime.now()
   diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+  if not enabled:
+    diagnostics['disabled'] = True
+    return diagnostics
   try:
     actual_value = plc.read_by_name(actual_value_name)
     current_control_bwk = plc.read_by_name(control_bwk_name)

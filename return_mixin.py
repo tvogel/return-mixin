@@ -35,6 +35,8 @@ D_error = None
 
 PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'return_mixin_params.json')
 
+enabled = True
+
 def ema(last, value, dt, integration_decay_factor):
   if last is None:
     return value
@@ -60,8 +62,9 @@ def save_parameters():
     json.dump(params, f)
 
 def set_parameters(params):
-  global Kp, Ki, Kd, set_point, control_range, integration_decay_factor
+  global Kp, Ki, Kd, set_point, control_range, integration_decay_factor, enabled
   with parameter_lock:
+    enabled = params.get('enabled', enabled)
     Kp = params.get('Kp', Kp)
     Ki = params.get('Ki', Ki)
     Kd = params.get('Kd', Kd)
@@ -72,12 +75,16 @@ def set_parameters(params):
 
 def get_parameters():
   with parameter_lock:
-    return {'Kp': Kp, 'Ki': Ki, 'Kd': Kd, 'set_point': set_point, 'off_range': -control_range[0], 'decay_factor': integration_decay_factor}
+    return {'enabled': enabled, 'Kp': Kp, 'Ki': Ki, 'Kd': Kd, 'set_point': set_point, 'off_range': -control_range[0], 'decay_factor': integration_decay_factor}
 
 def control_loop():
   global last_value, last_control, last_update, I_error, D_error, Kp, Ki, Kd
 
   diagnostics = {}
+
+  if not enabled:
+    diagnostics['disabled'] = True
+    return diagnostics
 
   if last_control is None:
     last_control = plc.read_by_name(control_value_name) \
