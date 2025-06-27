@@ -47,7 +47,7 @@ def load_parameters():
       params = json.load(f)
       set_parameters(params)
   except FileNotFoundError:
-    pass
+    save_parameters()
 
 def save_parameters():
   params = get_parameters()
