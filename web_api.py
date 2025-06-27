@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from flask import Flask, request, jsonify, render_template_string
 import return_mixin
 import bwk_onoff
