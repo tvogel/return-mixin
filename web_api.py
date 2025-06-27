@@ -531,6 +531,7 @@ def feed_121517_index():
                 document.getElementById('circulation_Ki').value = data.circulation_pid.Ki.toFixed(4);
                 document.getElementById('circulation_Kd').value = data.circulation_pid.Kd.toFixed(4);
                 document.getElementById('circulation_integration_half_life_minutes').value = decayFactorToHalfLife(data.circulation_pid.integration_decay_factor).toFixed(2);
+                document.getElementById('pwm_period').value = (data.pwm_period / 60).toFixed(2);
                 document.getElementById('enabled').checked = data.enabled !== false;
             }
 
@@ -545,6 +546,7 @@ def feed_121517_index():
                 const circulation_Ki = Number(document.getElementById('circulation_Ki').value);
                 const circulation_Kd = Number(document.getElementById('circulation_Kd').value);
                 const circulation_integration_half_life_minutes = Number(document.getElementById('circulation_integration_half_life_minutes').value);
+                const pwm_period = Number(document.getElementById('pwm_period').value) * 60;
                 const enabled = document.getElementById('enabled').checked;
                 await fetch('/api/feed-121517/parameters', {
                     method: 'POST',
@@ -556,6 +558,7 @@ def feed_121517_index():
                         circulation_set_point,
                         return_pid: { Kp: return_Kp, Ki: return_Ki, Kd: return_Kd, integration_decay_factor: halfLifeToDecayFactor(return_integration_half_life_minutes) },
                         circulation_pid: { Kp: circulation_Kp, Ki: circulation_Ki, Kd: circulation_Kd, integration_decay_factor: halfLifeToDecayFactor(circulation_integration_half_life_minutes) },
+                        pwm_period,
                         enabled
                     })
                 });
@@ -596,6 +599,8 @@ def feed_121517_index():
             <input type="number" id="circulation_Kd" step="0.00001">
             <label for="circulation_integration_half_life_minutes">Circulation Integration Half-Life (minutes):</label>
             <input type="number" id="circulation_integration_half_life_minutes" step="0.00001">
+            <label for="pwm_period">PWM Period (minutes):</label>
+            <input type="number" id="pwm_period" step="1" min="1">
             <button type="submit">Update PID</button>
         </form>
         <h2>Diagnostics</h2>
@@ -660,7 +665,7 @@ def feed_121517_parameters():
     return jsonify(feed_121517.get_parameters())
 
 async def feed_121517_combined_loop():
-    await feed_121517.setup_mqtt()  # Start MQTT setup
+    await feed_121517.setup_mqtt()
     while True:
         diagnostics = await feed_121517.control_loop()
         with feed_121517_lock:

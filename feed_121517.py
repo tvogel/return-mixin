@@ -25,7 +25,10 @@ CONTROL_ON = 3
 
 return_set_point = 52 # degrees
 circulation_set_point = 56 # degrees
-control_range = (0, 100)
+control_range = (-20, 100)  # Extended range
+
+# PWM parameters
+pwm_period = 300.0  # seconds, user-configurable (default: 5 minutes)
 
 # Lock for PID parameters
 parameter_lock = threading.Lock()
@@ -33,13 +36,21 @@ parameter_lock = threading.Lock()
 plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
 plc.open()
 
-last_control = plc.read_by_name(control_value_name)
+last_control = None
 last_update = None
 
 PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'feed_121517_params.json')
 
 mqtt_client = None
 actual_circulation = None
+
+# State for PWM
+pwm_state = {
+  'active': False,
+  'last_update': None,
+  'cycle_start': None,
+  'on': False
+}
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
@@ -146,13 +157,14 @@ def save_parameters():
 enabled = True
 
 def set_parameters(params):
-  global return_set_point, circulation_set_point, return_pid, enabled
+  global return_set_point, circulation_set_point, return_pid, pwm_period, enabled
   with parameter_lock:
     enabled = params.get('enabled', enabled)
     return_set_point = params.get('return_set_point', return_set_point)
     circulation_set_point = params.get('circulation_set_point', circulation_set_point)
     return_pid.set_parameters(params.get('return_pid', return_pid.parameters()))
     circulation_pid.set_parameters(params.get('circulation_pid', circulation_pid.parameters()))
+    pwm_period = params.get('pwm_period', pwm_period)
   save_parameters()
 
 def get_parameters():
@@ -162,14 +174,15 @@ def get_parameters():
         'return_set_point': return_set_point,
         'circulation_set_point': circulation_set_point,
         'return_pid': return_pid.parameters(),
-        'circulation_pid': circulation_pid.parameters()
+        'circulation_pid': circulation_pid.parameters(),
+        'pwm_period': pwm_period
     }
 
 def bounded(value, min_value, max_value):
   return max(min(value, max_value), min_value)
 
 async def control_loop():
-  global last_control, last_update, actual_circulation, enabled
+  global last_control, last_update, actual_circulation, pwm_state, enabled
 
   diagnostics = {}
   now = datetime.datetime.now()
@@ -181,7 +194,8 @@ async def control_loop():
 
   dt = (now - last_update).total_seconds() if last_update else None
   last_update = now
-
+  if last_control is None:
+    last_control = control_range[0] if plc.read_by_name(control_bws_name) == CONTROL_OFF else plc.read_by_name(control_value_name)
   try:
     with parameter_lock:
       actual_return_value = plc.read_by_name(actual_return_value_name)
@@ -194,8 +208,39 @@ async def control_loop():
       control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
 
       current_control_value = plc.read_by_name(control_value_name)
-      new_control_value = control_output * dt + current_control_value if dt else current_control_value
+      new_control_value = control_output * dt + last_control if dt else last_control
       new_control_value = bounded(new_control_value, *control_range)
+      last_control = new_control_value
+
+      # PWM logic for (-20, 0)
+      if new_control_value < 0:
+        # Calculate duty cycle: 0 at -20, 100 at 0
+        duty_cycle = 0.9 * (new_control_value + 20) / 20 + 0.1 # (0.1, 1)
+        # Setup PWM cycle
+        if pwm_state['cycle_start'] is None:
+          pwm_state['cycle_start'] = now
+        else:
+          elapsed_total = (now - pwm_state['cycle_start']).total_seconds()
+          if elapsed_total >= pwm_period:
+            # Advance cycle_start to the start of the current period
+            pwm_state['cycle_start'] = now - datetime.timedelta(seconds=elapsed_total % pwm_period)
+        elapsed = (now - pwm_state['cycle_start']).total_seconds()
+        on_time = duty_cycle * pwm_period
+        pwm_on = elapsed < on_time
+        # Set outputs
+        plc.write_by_name(control_value_name, 0)
+        plc.write_by_name(control_bws_name, CONTROL_ON if pwm_on else CONTROL_OFF)
+        diagnostics['pwm'] = {
+          'duty_cycle': duty_cycle,
+          'pwm_on': pwm_on,
+          'elapsed': elapsed,
+          'on_time': on_time,
+          'period': pwm_period
+        }
+      else:
+        # Normal range (>= 0)
+        plc.write_by_name(control_bws_name, CONTROL_ON)
+        plc.write_by_name(control_value_name, new_control_value)
 
     diagnostics |= {
       'dt': dt,
@@ -222,10 +267,6 @@ async def control_loop():
       'control_output': control_output,
       'new_control_value': new_control_value
     }
-
-    if new_control_value != current_control_value:
-      plc.write_by_name(control_bws_name, CONTROL_ON)
-      plc.write_by_name(control_value_name, new_control_value)
 
   except Exception as e:
     print(e)
