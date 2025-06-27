@@ -202,6 +202,11 @@ async def control_loop():
       control_output_return = return_pid.update(return_set_point - actual_return_value, dt)
 
       control_output_circulation = None
+      if actual_circulation and actual_circulation['timestamp']:
+        # Check if the actual_circulation is recent enough
+        if (now - actual_circulation['timestamp']).total_seconds() > 60:
+          print("Actual circulation data is too old, skipping circulation control")
+          actual_circulation = None
       if actual_circulation:
         control_output_circulation = circulation_pid.update(circulation_set_point - actual_circulation['value'], dt)
 
