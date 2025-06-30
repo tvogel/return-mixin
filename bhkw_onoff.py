@@ -65,8 +65,8 @@ def get_parameters():
     return { 'enabled': enabled } | buffer_tank.parameters()
 
 def determine_control_value(current, solar_available, pk_available):
-  if not solar_available:
-    return control.ON
+  #if not solar_available:
+  #  return control.ON
   if pk_available:
     return control.OFF
   if (buffer_tank_control := buffer_tank.get_control()) != None:
