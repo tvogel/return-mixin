@@ -72,7 +72,7 @@ async def setup_mqtt():
   mqtt_client = MQTTClient("feed_121517")
   mqtt_client.on_connect = on_connect
   mqtt_client.on_message = on_message
-  await mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT)
+  await mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
   mqtt_client.subscribe(MQTT_TOPIC)
 
 class FD1:
