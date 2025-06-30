@@ -9,17 +9,27 @@ import json
 import os
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
-set_point = 63.5
 control_value_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
 control_onoff_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.BWS.iStellung'
+consumer_names = [
+  'PRG_HE.FB_Hk_Haus_7_8_11.FB_Pumpe.bBetrieb',
+  'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.bBetrieb',
+  'PRG_HE.FB_Hk_Haus_28_42.FB_Pumpe.bBetrieb',
+  'PRG_HE.FB_TWW.FB_Ladepumpe.bBetrieb'
+]
+
 CONTROL_OFF = 2
 CONTROL_ON = 3
-control_range = (-3, 100)
-integration_decay_factor = 0.5 ** (1/60) # 50% per minute
 
-Kp = 7.5 / 60 # percent per second per degree
-Ki = 7.5 / 60 # percent per second per long-term degree
-Kd = 510 / 60 # percent per second per degree change per second
+set_point = 63.5
+
+integration_decay_factor = 0.5 ** (1/300) # 50% per five minutes
+
+Kp = 6 / 60 # percent per second per degree
+Ki = 3 / 60 # percent per second per long-term degree
+Kd = 900 / 60 # percent per second per degree change per second
+
+control_range = (-30, 100)
 
 # Lock for PID parameters
 parameter_lock = threading.Lock()
@@ -77,6 +87,12 @@ def get_parameters():
   with parameter_lock:
     return {'enabled': enabled, 'Kp': Kp, 'Ki': Ki, 'Kd': Kd, 'set_point': set_point, 'off_range': -control_range[0], 'decay_factor': integration_decay_factor}
 
+def any_consumer_on():
+  for name in consumer_names:
+    if plc.read_by_name(name):
+      return True
+  return False
+
 def control_loop():
   global last_value, last_control, last_update, I_error, D_error, Kp, Ki, Kd
 
@@ -92,9 +108,19 @@ def control_loop():
       else control_range[0]
 
   try:
-    actual_value = plc.read_by_name(actual_value_name)
     now = datetime.datetime.now()
     dt = (now - last_update).total_seconds() if last_update else None
+    last_update = now
+    diagnostics['dt'] = dt
+
+    if not any_consumer_on():
+      plc.write_by_name(control_onoff_name, CONTROL_OFF)
+      plc.write_by_name(control_value_name, 0)
+      diagnostics['no_consumers'] = True
+      diagnostics['new_control_value'] = control_range[0]
+      return diagnostics
+
+    actual_value = plc.read_by_name(actual_value_name)
 
     error = actual_value - set_point
     I_error = ema(I_error, error, dt, integration_decay_factor)
@@ -107,13 +133,12 @@ def control_loop():
       D = Kd * D_error
 
     last_value = error
-    last_update = now
     control_output = P + I + D
+
     new_control_value = control_output * dt + last_control if dt else last_control
     new_control_value = max(control_range[0], min(control_range[1], new_control_value))
 
-    diagnostics = {
-      'dt': dt,
+    diagnostics |= {
       'actual_value': actual_value,
       'error': error,
       'I_error': I_error,
