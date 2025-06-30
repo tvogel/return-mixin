@@ -118,9 +118,9 @@ def control_loop():
         auto_off_dt = None
         diagnostics['auto_off'] = 'expired'
         diagnostics['pk'] = pk.diagnostics()
-        if not pk.is_available():
-          diagnostics['control_bwk'] = 'ignored (PK not available)'
-          return diagnostics
+        #if not pk.is_available():
+        #  diagnostics['control_bwk'] = 'ignored (PK not available)'
+        #  return diagnostics
         plc.write_by_name(control_bwk_name, control.OFF)
         diagnostics['control_bwk'] = 'off'
         return diagnostics
