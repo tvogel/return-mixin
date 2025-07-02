@@ -215,6 +215,9 @@ async def control_loop():
       current_control_value = plc.read_by_name(control_value_name)
       new_control_value = control_output * dt + last_control if dt else last_control
       new_control_value = bounded(new_control_value, *control_range)
+      if not actual_circulation:
+        # If no circulation data, use a safer minimum value
+        new_control_value = bounded(new_control_value, 0.5 * control_range[0], control_range[1])
       last_control = new_control_value
 
       # PWM logic for (-20, 0)
