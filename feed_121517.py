@@ -207,6 +207,10 @@ async def control_loop():
         if (now - actual_circulation['timestamp']).total_seconds() > 60:
           print("Actual circulation data is too old, skipping circulation control")
           actual_circulation = None
+          if not mqtt_client.is_connected():
+            print("MQTT client is not connected, reconnecting...")
+            setup_mqtt()
+
       if actual_circulation:
         control_output_circulation = circulation_pid.update(circulation_set_point - actual_circulation['value'], dt)
 
@@ -219,7 +223,7 @@ async def control_loop():
 
       # PWM logic for (-20, 0)
       if new_control_value < 0:
-        # Calculate duty cycle: 0 at -20, 100 at 0
+        # Calculate duty cycle: 10% at -20, 100% at 0
         duty_cycle = 0.9 * (new_control_value + 20) / 20 + 0.1 # (0.1, 1)
         # Setup PWM cycle
         if pwm_state['cycle_start'] is None:
