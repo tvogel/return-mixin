@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from unittest.mock import Base
 import pyads
 import datetime
 import time
@@ -9,14 +10,12 @@ import json
 import os
 import control
 from pk import PK
+from base_control_module import BaseControlModule
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
 
 # Lock for parameters
-parameter_lock = threading.Lock()
-threshold = 60 # degrees
-auto_duration_minutes = 10
 
 plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
 plc.open()
@@ -35,106 +34,87 @@ class EMA:
     self.last = last_weight * self.last + (1 - last_weight) * value
     return self.last
 
-last_update_dt = None
-value_ema = EMA(0.5 ** (1/60)) # 50% per minute
-auto_off_dt = None
+class BwkOnOff(BaseControlModule):
+  def __init__(self):
+    super().__init__(
+      plc_ams_net_id='192.168.35.21.1.1',
+      plc_ams_port=pyads.PORT_TC3PLC1,
+      param_filename='bwk_onoff_params.json'
+    )
+    self.threshold = 60 # degrees
+    self.auto_duration_minutes = 10
 
-PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'bwk_onoff_params.json')
+    self.last_update_dt = None
+    self.value_ema = EMA(0.5 ** (1/60))  # 50% per minute
+    self.auto_off_dt = None
 
-def load_parameters():
-  try:
-    with open(PARAMS_FILE, 'r') as f:
-      params = json.load(f)
-      set_parameters(params)
-  except FileNotFoundError:
-    save_parameters()
+  def _set_module_parameters(self, params):
+    self.value_ema.decay_factor = params.get('decay_factor', self.value_ema.decay_factor)
+    self.threshold = params.get('threshold', self.threshold)
+    self.auto_duration_minutes = params.get('auto_duration_minutes', self.auto_duration_minutes)
 
-def save_parameters():
-  params = get_parameters()
-  with open(PARAMS_FILE, 'w') as f:
-    json.dump(params, f)
+  def _get_module_parameters(self):
+    return {
+      'decay_factor': self.value_ema.decay_factor,
+      'threshold': self.threshold,
+      'auto_duration_minutes': self.auto_duration_minutes
+    }
 
-enabled = True
-
-def set_parameters(params):
-  global enabled, threshold, auto_duration_minutes
-  with parameter_lock:
-    enabled = params.get('enabled', enabled)
-    value_ema.decay_factor = params.get('decay_factor', value_ema.decay_factor)
-    threshold = params.get('threshold', threshold)
-    auto_duration_minutes = params.get('auto_duration_minutes', auto_duration_minutes)
-  save_parameters()
-
-def get_parameters():
-  with parameter_lock:
-    return {'enabled': enabled, 'decay_factor': value_ema.decay_factor, 'threshold': threshold, 'auto_duration_minutes': auto_duration_minutes}
-
-def control_loop():
-  global last_update_dt, value_ema, auto_off_dt
-  diagnostics = {}
-  now = datetime.datetime.now()
-  diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
-  if not enabled:
-    diagnostics['disabled'] = True
-    return diagnostics
-  try:
+  def _control_action(self, now):
     actual_value = plc.read_by_name(actual_value_name)
     current_control_bwk = plc.read_by_name(control_bwk_name)
-    pk = PK(plc)
+    pk = PK(self.plc)
     pk.read()
 
-    now = datetime.datetime.now()
-    diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
-
-    dt = (now - last_update_dt).total_seconds() if last_update_dt else None
-    last_update_dt = now
-    value_ema.update(actual_value, dt)
-    diagnostics['value'] = round(actual_value, 2)
-    diagnostics['value_ema'] = round(value_ema.last, 2)
-    diagnostics['bwk'] = control.control_str(current_control_bwk)
-    if auto_off_dt:
-      diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
+    dt = (now - self.last_update_dt).total_seconds() if self.last_update_dt else None
+    self.last_update_dt = now
+    self.value_ema.update(actual_value, dt)
+    diagnostics = {
+      'value': round(actual_value, 2),
+      'value_ema': round(self.value_ema.last, 2),
+      'bwk': control.control_str(current_control_bwk)
+    }
+    if self.auto_off_dt:
+      diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
     if current_control_bwk != control.ON:
-      if value_ema.last < threshold:
+      if self.value_ema.last < self.threshold:
         plc.write_by_name(control_bwk_name, control.AUTO)
         diagnostics['control_bwk'] = 'auto'
-        auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
-        diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
+        self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
+        diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
         return diagnostics
 
     if current_control_bwk == control.OFF:
-      if auto_off_dt is not None:
-        auto_off_dt = None
+      if self.auto_off_dt is not None:
+        self.auto_off_dt = None
         diagnostics['auto_off'] = 'superceded'
         return diagnostics
 
     if current_control_bwk == control.AUTO:
-      if auto_off_dt is None:
-        auto_off_dt = now + datetime.timedelta(minutes=auto_duration_minutes)
-        diagnostics['auto_off'] = auto_off_dt.replace(microsecond=0).isoformat()
+      if self.auto_off_dt is None:
+        self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
+        diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
         return diagnostics
-      if now >= auto_off_dt:
-        auto_off_dt = None
+      if now >= self.auto_off_dt:
+        self.auto_off_dt = None
         diagnostics['auto_off'] = 'expired'
         diagnostics['pk'] = pk.diagnostics()
-        #if not pk.is_available():
-        #  diagnostics['control_bwk'] = 'ignored (PK not available)'
-        #  return diagnostics
+        # if not pk.is_available():
+        #   diagnostics['control_bwk'] = 'ignored (PK not available)'
+        #   return diagnostics
         plc.write_by_name(control_bwk_name, control.OFF)
         diagnostics['control_bwk'] = 'off'
         return diagnostics
 
-  except Exception as e:
-    diagnostics['exception'] = repr(e)
-    print(e)
+    diagnostics['idle'] = True
+    return diagnostics
 
-  diagnostics['idle'] = True
-  return diagnostics
+bwk_onoff = BwkOnOff()
 
 def main(stop_requested):
   while not stop_requested():
-    diagnostics = control_loop()
+    diagnostics = bwk_onoff.control_loop()
     print(diagnostics.pop('timestamp'), end=' ')
     print(diagnostics, flush=True)
 
@@ -144,7 +124,7 @@ def main(stop_requested):
       break
   return 0
 
-load_parameters()
+bwk_onoff.load_parameters()
 
 if __name__ == '__main__':
   exit(main(lambda: False))

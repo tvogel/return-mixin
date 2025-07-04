@@ -3,13 +3,15 @@
 
 from flask import Flask, request, jsonify, render_template_string
 import return_mixin
-import bwk_onoff
+from bwk_onoff import bwk_onoff
 import pk_onoff
 import bhkw_onoff
 import feed_121517
+import restart_wp_11
 import threading
 import time
 import asyncio
+import datetime
 
 app = Flask(__name__)
 
@@ -18,10 +20,12 @@ return_mixin_diagnostics = []
 bwk_onoff_diagnostics = []
 pk_onoff_diagnostics = []
 bhkw_onoff_diagnostics = []
+restart_wp_11_diagnostics = []
 return_mixin_lock = threading.Lock()
 bwk_onoff_lock = threading.Lock()
 pk_onoff_lock = threading.Lock()
 bhkw_onoff_lock = threading.Lock()
+restart_wp_11_lock = threading.Lock()
 
 feed_121517_diagnostics = []
 feed_121517_lock = threading.Lock()
@@ -85,6 +89,8 @@ def home():
         <a href="/bhkw_onoff">BHKW On/Off</a>
         <br>
         <a href="/feed_121517">Feed 12/15/17</a>
+        <br>
+        <a href="/restart_wp_11">Restart WP 11</a>
     </body>
     </html>
     ''', common_styles=common_styles)
@@ -609,6 +615,90 @@ def feed_121517_index():
     </html>
     ''', common_styles=common_styles)
 
+@app.route('/restart_wp_11', methods=['GET'])
+def restart_wp_11_index():
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Restart WP 11 Control</title>
+        {{ common_styles|safe }}
+        <script>
+            async function fetchDiagnostics() {
+                const response = await fetch('/api/restart-wp-11/diagnostics');
+                const data = await response.json();
+                const table = document.getElementById('diagnostics');
+                table.innerHTML = '<tr><th>Timestamp</th><th>Value</th><th>Threshold Min</th><th>Threshold Max</th><th>Threshold Delta</th><th>Alert</th><th>State</th><th>Alert Min</th><th>Alert Max</th><th>Alert State Left</th><th>Auto Reset Seconds</th><th>Action</th><th>Exception</th></tr>';
+                data.slice().reverse().forEach(row => {
+                    const tr = document.createElement('tr');
+                    const keys = ['timestamp','value','threshold_min','threshold_max','threshold_delta','alert','state','alert_min','alert_max','alert_state_left','auto_reset_seconds','action','exception'];
+                    keys.forEach((key) => {
+                        const td = document.createElement('td');
+                        td.innerText = row[key] !== undefined ? row[key] : '-';
+                        tr.append(td);
+                    });
+                    table.append(tr);
+                });
+            }
+
+            async function fetchParameters() {
+                const response = await fetch('/api/restart-wp-11/parameters');
+                const data = await response.json();
+                document.getElementById('enabled').checked = data.enabled !== false;
+                const autoReset = data.hotgas_temp.auto_reset_seconds;
+                document.getElementById('auto_reset_enabled').checked = autoReset !== null && autoReset !== undefined;
+                document.getElementById('auto_reset_seconds').value = autoReset !== null && autoReset !== undefined ? autoReset : '';
+                document.getElementById('auto_reset_seconds').disabled = !(autoReset !== null && autoReset !== undefined);
+            }
+
+            function onAutoResetEnabledChanged() {
+                const enabled = document.getElementById('auto_reset_enabled').checked;
+                document.getElementById('auto_reset_seconds').disabled = !enabled;
+            }
+
+            async function updateParameters() {
+                const enabled = document.getElementById('enabled').checked;
+                const auto_reset_enabled = document.getElementById('auto_reset_enabled').checked;
+                let auto_reset_seconds = null;
+                if (auto_reset_enabled) {
+                    const val = document.getElementById('auto_reset_seconds').value;
+                    auto_reset_seconds = val === '' ? null : Number(val);
+                }
+                await fetch('/api/restart-wp-11/parameters', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, hotgas_temp: { auto_reset_seconds } })
+                });
+                fetchParameters();
+            }
+
+            setInterval(fetchDiagnostics, 5000);
+            window.onload = function() {
+                fetchDiagnostics();
+                fetchParameters();
+                document.getElementById('auto_reset_enabled').addEventListener('change', onAutoResetEnabledChanged);
+            }
+        </script>
+    </head>
+    <body>
+        <h1>Restart WP 11 Control</h1>
+        <a href="/">Home</a>
+        <h2>Parameters</h2>
+        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+            <label for="enabled">Enable Control:</label>
+            <input type="checkbox" id="enabled">
+            <label for="auto_reset_enabled">Enable Auto Reset:</label>
+            <input type="checkbox" id="auto_reset_enabled">
+            <label for="auto_reset_seconds">Auto Reset Seconds:</label>
+            <input type="number" id="auto_reset_seconds" step="1">
+            <button type="submit">Update Parameters</button>
+        </form>
+        <h2>Diagnostics</h2>
+        <table id="diagnostics"></table>
+    </body>
+    </html>
+    ''', common_styles=common_styles)
+
 @app.route('/api/return-mixin/diagnostics', methods=['GET'])
 def get_return_mixin_diagnostics():
     with return_mixin_lock:
@@ -633,6 +723,11 @@ def get_bhkw_onoff_diagnostics():
 def get_feed_121517_diagnostics():
     with feed_121517_lock:
         return jsonify(feed_121517_diagnostics)
+
+@app.route('/api/restart-wp-11/diagnostics', methods=['GET'])
+def get_restart_wp_11_diagnostics():
+    with restart_wp_11_lock:
+        return jsonify(restart_wp_11_diagnostics)
 
 @app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
 def return_mixin_parameters():
@@ -663,6 +758,15 @@ def feed_121517_parameters():
     if request.method == 'POST':
         feed_121517.set_parameters(request.json)
     return jsonify(feed_121517.get_parameters())
+
+@app.route('/api/restart-wp-11/parameters', methods=['GET', 'POST'])
+def restart_wp_11_parameters():
+    if request.method == 'GET':
+        return jsonify(restart_wp_11.get_parameters())
+    else:
+        params = request.get_json(force=True)
+        restart_wp_11.set_parameters(params)
+        return jsonify({'status': 'ok'})
 
 async def feed_121517_combined_loop():
     await feed_121517.setup_mqtt()
@@ -719,6 +823,17 @@ def bhkw_onoff_control_loop_with_diagnostics():
                 bhkw_onoff_diagnostics.pop(0)
         time.sleep(30)
 
+def restart_wp_11_control_loop_with_diagnostics():
+    global restart_wp_11_diagnostics
+    while True:
+        diagnostics = restart_wp_11.control_loop()
+        # timestamp is already set in diagnostics by restart_wp_11.control_loop
+        with restart_wp_11_lock:
+            restart_wp_11_diagnostics.append(diagnostics)
+            if len(restart_wp_11_diagnostics) > 1100:
+                restart_wp_11_diagnostics = restart_wp_11_diagnostics[-1000:]
+        time.sleep(5)
+
 def start_control_loops():
     return_mixin_thread = threading.Thread(target=return_mixin_control_loop_with_diagnostics)
     return_mixin_thread.daemon = True
@@ -739,6 +854,10 @@ def start_control_loops():
     feed_121517_thread = threading.Thread(target=feed_121517_control_loop_with_diagnostics)
     feed_121517_thread.daemon = True
     feed_121517_thread.start()
+
+    restart_wp_11_thread = threading.Thread(target=restart_wp_11_control_loop_with_diagnostics)
+    restart_wp_11_thread.daemon = True
+    restart_wp_11_thread.start()
 
 if __name__ == '__main__':
     start_control_loops()
