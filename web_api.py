@@ -193,7 +193,7 @@ def index():
             <input type="number" id="off_range" step="0.00001">
             <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
             <input type="number" id="half_life_minutes" step="0.00001">
-            <button type="submit">Update PID</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
@@ -283,7 +283,7 @@ def bwk_onoff_index():
             <input type="number" id="threshold" step="0.00001">
             <label for="auto_duration_minutes">Auto Duration (minutes):</label>
             <input type="number" id="auto_duration_minutes" step="0.00001">
-            <button type="submit">Update Parameters</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
@@ -373,7 +373,7 @@ def pk_onoff_index():
             <input type="number" id="on_threshold" step="0.00001">
             <label for="off_threshold">Off Threshold:</label>
             <input type="number" id="off_threshold" step="0.00001">
-            <button type="submit">Update Parameters</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
@@ -463,7 +463,7 @@ def bhkw_onoff_index():
             <input type="number" id="on_threshold" step="0.00001">
             <label for="off_threshold">Off Threshold:</label>
             <input type="number" id="off_threshold" step="0.00001">
-            <button type="submit">Update Parameters</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
@@ -607,7 +607,7 @@ def feed_121517_index():
             <input type="number" id="circulation_integration_half_life_minutes" step="0.00001">
             <label for="pwm_period">PWM Period (minutes):</label>
             <input type="number" id="pwm_period" step="1" min="1">
-            <button type="submit">Update PID</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>
@@ -691,7 +691,7 @@ def restart_wp_11_index():
             <input type="checkbox" id="auto_reset_enabled">
             <label for="auto_reset_seconds">Auto Reset Seconds:</label>
             <input type="number" id="auto_reset_seconds" step="1">
-            <button type="submit">Update Parameters</button>
+            <button type="submit">Set Parameters</button>
         </form>
         <h2>Diagnostics</h2>
         <table id="diagnostics"></table>

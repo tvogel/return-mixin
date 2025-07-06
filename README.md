@@ -61,7 +61,7 @@ The diagnostics table displays the following information:
 
 #### PID Parameters
 
-Adjust the PID parameters (`Kp`, `Ki`, `Kd`) and the set point using the input fields and the "Update PID" button.
+Adjust the PID parameters (`Kp`, `Ki`, `Kd`) and the set point using the input fields.
 
 ### BWK On/Off Control
 
