@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from flask import Flask, request, jsonify, render_template_string
-import return_mixin
+from return_mixin import return_mixin
 from bwk_onoff import bwk_onoff
 from pk_onoff import pk_onoff
 from bhkw_onoff import bhkw_onoff
