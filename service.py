@@ -11,7 +11,7 @@ import os
 import threading
 import pyads
 
-from web_api import start_control_loops, app
+from web_api import controller_manager, app
 
 print("Starting service\n")
 print("Working directory: %s\n" % os.getcwd())
@@ -58,7 +58,7 @@ class PyADSService(win32serviceutil.ServiceFramework):
 
     def main(self):
         self.wait_for_twincat_route()
-        start_control_loops()
+        controller_manager.start_control_loops()
         api_thread = threading.Thread(target=app.run, kwargs={'host': 'localhost', 'port': 5000})
         api_thread.daemon = True
         api_thread.start()
