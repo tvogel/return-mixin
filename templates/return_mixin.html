@@ -1,0 +1,94 @@
+{% extends "base.html" %} {% block content %}
+<h2>PID Parameters</h2>
+<form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+  <label for="enabled">Enable Control:</label>
+  <input type="checkbox" id="enabled" />
+
+  <label for="Kp">Kp:</label>
+  <input type="number" id="Kp" step="0.00001" />
+
+  <label for="Ki">Ki:</label>
+  <input type="number" id="Ki" step="0.00001" />
+
+  <label for="Kd">Kd:</label>
+  <input type="number" id="Kd" step="0.00001" />
+
+  <label for="set_point">Set Point:</label>
+  <input type="number" id="set_point" step="0.00001" />
+
+  <label for="off_range">Off-Range:</label>
+  <input type="number" id="off_range" step="0.00001" />
+
+  <label for="half_life_minutes"
+    >Half-Life for exponential mean average (minutes):</label
+  >
+  <input type="number" id="half_life_minutes" step="0.00001" />
+
+  <button type="submit">Set Parameters</button>
+</form>
+
+<h2>Diagnostics</h2>
+<table id="diagnostics"></table>
+{% endblock %} {% block page_init %}
+<script>
+  async function fetchDiagnostics() {
+    const data = await apiGet("/api/{{ api_path }}/diagnostics");
+    const table = document.getElementById("diagnostics");
+    table.innerHTML =
+      '<tr><th>dt</th><th>actual_value</th><th>error</th><th>I_error</th><th>D_error</th><th class="thick-border">P</th><th>I</th><th>D</th><th>control_output</th><th>new_control_value</th></tr>';
+    data.reverse().forEach((row) => {
+      const tr = document.createElement("tr");
+      const keys = [
+        "dt",
+        "actual_value",
+        "error",
+        "I_error",
+        "D_error",
+        "P",
+        "I",
+        "D",
+        "control_output",
+        "new_control_value",
+      ];
+      const digits = { D_error: 4 };
+      keys.forEach((key) => {
+        const td = createTableCell(formatValue(row[key], digits[key] ?? 2));
+        if (key === "P") {
+          td.classList.add("thick-border");
+        }
+        tr.append(td);
+      });
+      table.append(tr);
+    });
+  }
+
+  async function fetchParameters() {
+    const data = await apiGet("/api/{{ api_path }}/parameters");
+    setFormValue("Kp", data.Kp);
+    setFormValue("Ki", data.Ki);
+    setFormValue("Kd", data.Kd);
+    setFormValue("set_point", data.set_point);
+    setFormValue("off_range", data.off_range);
+    setFormValue(
+      "half_life_minutes",
+      decayFactorToHalfLife(data.decay_factor).toFixed(2)
+    );
+    setFormValue("enabled", data.enabled, true);
+  }
+
+  async function updateParameters() {
+    const params = {
+      Kp: getFormValue("Kp"),
+      Ki: getFormValue("Ki"),
+      Kd: getFormValue("Kd"),
+      set_point: getFormValue("set_point"),
+      off_range: getFormValue("off_range"),
+      decay_factor: halfLifeToDecayFactor(getFormValue("half_life_minutes")),
+      enabled: getFormValue("enabled", true),
+    };
+
+    await apiPost("/api/{{ api_path }}/parameters", params);
+    fetchParameters();
+  }
+</script>
+{% endblock %}

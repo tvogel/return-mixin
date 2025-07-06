@@ -1,865 +1,232 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template
+from typing import Dict, List, Callable, Any, Optional
+import threading
+import time
+import asyncio
+import datetime
+from dataclasses import dataclass
+from abc import ABC, abstractmethod
+
+# Import control modules
 from return_mixin import return_mixin
 from bwk_onoff import bwk_onoff
 from pk_onoff import pk_onoff
 from bhkw_onoff import bhkw_onoff
 from feed_121517 import feed_121517
 import restart_wp_11
-import threading
-import time
-import asyncio
-import datetime
 
+@dataclass
+class ControllerConfig:
+  """Configuration for a control module"""
+  name: str
+  title: str
+  module: Any
+  sleep_interval: int = 30
+  max_diagnostics: int = 100
+  template: str = "control_basic.html"
+  control_loop_handler: Optional[Callable] = None
+
+  @property
+  def api_path(self) -> str:
+    """Generate API path from name"""
+    return self.name
+
+  @property
+  def route_path(self) -> str:
+    """Generate route path from name"""
+    return self.name
+
+class ControllerManager:
+  """Manages control modules and their common operations"""
+
+  def __init__(self):
+    self.controllers: Dict[str, ControllerConfig] = {}
+    self.diagnostics: Dict[str, List] = {}
+    self.locks: Dict[str, threading.Lock] = {}
+
+  def register_controller(self, config: ControllerConfig):
+    """Register a new controller"""
+    self.controllers[config.name] = config
+    self.diagnostics[config.name] = []
+    self.locks[config.name] = threading.Lock()
+
+  def get_diagnostics(self, controller_name: str):
+    """Get diagnostics for a controller"""
+    with self.locks[controller_name]:
+      return self.diagnostics[controller_name].copy()
+
+  def add_diagnostic_entry(self, controller_name: str, entry: Dict):
+    """Add a diagnostic entry for a controller"""
+    config = self.controllers[controller_name]
+    with self.locks[controller_name]:
+      self.diagnostics[controller_name].append(entry)
+      if len(self.diagnostics[controller_name]) > config.max_diagnostics:
+        self.diagnostics[controller_name].pop(0)
+
+  def start_control_loops(self):
+    """Start all control loops"""
+    for name, config in self.controllers.items():
+      if config.control_loop_handler:
+        thread = threading.Thread(target=config.control_loop_handler)
+      else:
+        thread = threading.Thread(target=self._default_control_loop, args=(name,))
+      thread.daemon = True
+      thread.start()
+
+  def _default_control_loop(self, controller_name: str):
+    """Default control loop implementation"""
+    config = self.controllers[controller_name]
+    while True:
+      try:
+        diagnostics = config.module.control_loop()
+
+        # Handle different diagnostic formats
+        if isinstance(diagnostics, dict):
+          if 'timestamp' in diagnostics and controller_name in ['bwk-onoff', 'pk-onoff', 'bhkw-onoff']:
+            # For on/off controllers, separate timestamp from data
+            timestamp = diagnostics.pop('timestamp')
+            entry = {'timestamp': timestamp, 'data': diagnostics}
+          else:
+            entry = diagnostics
+        else:
+          entry = diagnostics
+
+        self.add_diagnostic_entry(controller_name, entry)
+
+      except Exception as e:
+        print(f"Error in {controller_name} control loop: {e}")
+
+      time.sleep(config.sleep_interval)
+
+# Initialize Flask app and controller manager
 app = Flask(__name__)
+app.template_folder = 'templates'
+app.static_folder = 'static'
 
-# Shared variables for diagnostics
-return_mixin_diagnostics = []
-bwk_onoff_diagnostics = []
-pk_onoff_diagnostics = []
-bhkw_onoff_diagnostics = []
-restart_wp_11_diagnostics = []
-return_mixin_lock = threading.Lock()
-bwk_onoff_lock = threading.Lock()
-pk_onoff_lock = threading.Lock()
-bhkw_onoff_lock = threading.Lock()
-restart_wp_11_lock = threading.Lock()
+controller_manager = ControllerManager()
 
-feed_121517_diagnostics = []
-feed_121517_lock = threading.Lock()
+# Controller configurations
+CONTROLLER_CONFIGS = [
+  ControllerConfig(
+    name="return-mixin",
+    title="Return Mix-in",
+    module=return_mixin,
+    sleep_interval=5,
+    template="return_mixin.html"
+  ),
+  ControllerConfig(
+    name="bwk-onoff",
+    title="BWK On/Off Control",
+    module=bwk_onoff,
+    template="onoff_control.html"
+  ),
+  ControllerConfig(
+    name="pk-onoff",
+    title="PK On/Off Control",
+    module=pk_onoff,
+    template="onoff_control.html"
+  ),
+  ControllerConfig(
+    name="bhkw-onoff",
+    title="BHKW On/Off Control",
+    module=bhkw_onoff,
+    template="onoff_control.html"
+  ),
+  ControllerConfig(
+    name="restart-wp-11",
+    title="Restart WP 11 Control",
+    module=restart_wp_11,
+    sleep_interval=5,
+    max_diagnostics=1000,
+    template="restart_wp_11.html"
+  ),
+]
 
-common_styles = '''
-<style>
-    body {
-        font-family: Arial, sans-serif;
-    }
-    table {
-        width: 60em;
-        border-collapse: collapse;
-    }
-    th, td {
-        border: 1px solid black;
-        padding: 4px;
-        text-align: center;
-    }
-    th {
-        background-color: #CECECE;
-    }
-    tr:nth-child(odd) {
-        background-color: #E8E8E8;
-    }
-    .thick-border {
-        border-left: 3px solid black;
-    }
-    .form-grid {
-        display: grid;
-        grid-template-columns: max-content auto;
-        gap: 0.5em;
-        align-items: center;
-    }
-    .form-grid label {
-        text-align: right;
-    }
-    .form-grid button {
-        grid-column: 2;
-        justify-self: start;
-    }
-</style>
-'''
-
-@app.route('/', methods=['GET'])
-def home():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Home</title>
-        {{ common_styles|safe }}
-    </head>
-    <body>
-        <h1>Welcome to PyADS Control</h1>
-        <a href="/return_mixin">Return Mix-in</a>
-        <br>
-        <a href="/bwk_onoff">BWK On/Off</a>
-        <br>
-        <a href="/pk_onoff">PK On/Off</a>
-        <br>
-        <a href="/bhkw_onoff">BHKW On/Off</a>
-        <br>
-        <a href="/feed_121517">Feed 12/15/17</a>
-        <br>
-        <a href="/restart_wp_11">Restart WP 11</a>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/return_mixin', methods=['GET'])
-def index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>PyADS Control</title>
-        {{ common_styles|safe }}
-        <script>
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/return-mixin/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = '<tr><th>dt</th><th>actual_value</th><th>error</th><th>I_error</th><th>D_error</th><th class="thick-border">P</th><th>I</th><th>D</th><th>control_output</th><th>new_control_value</th></tr>';
-                data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    const keys = ['dt', 'actual_value', 'error', 'I_error', 'D_error', 'P', 'I', 'D', 'control_output', 'new_control_value'];
-                    const digits = { D_error: 4 };
-                    keys.forEach((key) => {
-                        const td = document.createElement('td');
-                        td.innerText = row[key]?.toFixed(digits[key] ?? 2) ?? '-';
-                        if (key === 'P') {
-                            td.classList.add('thick-border');
-                        }
-                        tr.append(td);
-                    });
-                    table.append(tr);
-                });
-            }
-
-            function halfLifeToDecayFactor(halfLifeMinutes) {
-                if (halfLifeMinutes <= 0) {
-                    return 0;
-                }
-                return Math.pow(2, -1 / halfLifeMinutes / 60);
-            }
-
-            function decayFactorToHalfLife(decayFactor) {
-                return - Math.log(2) / Math.log(decayFactor) / 60;
-            }
-
-            async function fetchParameters() {
-                const response = await fetch('/api/return-mixin/parameters');
-                const data = await response.json();
-                document.getElementById('Kp').value = data.Kp;
-                document.getElementById('Ki').value = data.Ki;
-                document.getElementById('Kd').value = data.Kd;
-                document.getElementById('set_point').value = data.set_point;
-                document.getElementById('off_range').value = data.off_range;
-                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
-                document.getElementById('enabled').checked = data.enabled !== false;
-            }
-
-            async function updateParameters() {
-                const Kp = Number(document.getElementById('Kp').value);
-                const Ki = Number(document.getElementById('Ki').value);
-                const Kd = Number(document.getElementById('Kd').value);
-                const set_point = Number(document.getElementById('set_point').value);
-                const off_range = Number(document.getElementById('off_range').value);
-                const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
-                const decay_factor = halfLifeToDecayFactor(half_life_minutes);
-                const enabled = document.getElementById('enabled').checked;
-                await fetch('/api/return-mixin/parameters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ Kp, Ki, Kd, set_point, off_range, decay_factor, enabled })
-                });
-                fetchParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchParameters();
-            }
-        </script>
-    </head>
-    <body>
-        <h1>PyADS Control</h1>
-        <a href="/">Home</a>
-        <h2>PID Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="Kp">Kp:</label>
-            <input type="number" id="Kp" step="0.00001">
-            <label for="Ki">Ki:</label>
-            <input type="number" id="Ki" step="0.00001">
-            <label for="Kd">Kd:</label>
-            <input type="number" id="Kd" step="0.00001">
-            <label for="set_point">Set Point:</label>
-            <input type="number" id="set_point" step="0.00001">
-            <label for="off_range">Off-Range:</label>
-            <input type="number" id="off_range" step="0.00001">
-            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
-            <input type="number" id="half_life_minutes" step="0.00001">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/bwk_onoff', methods=['GET'])
-def bwk_onoff_index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>BWK On/Off Control</title>
-        {{ common_styles|safe }}
-        <script>
-            function halfLifeToDecayFactor(halfLifeMinutes) {
-                if (halfLifeMinutes <= 0) {
-                    return 0;
-                }
-                return Math.pow(2, -1 / halfLifeMinutes / 60);
-            }
-
-            function decayFactorToHalfLife(decayFactor) {
-                return - Math.log(2) / Math.log(decayFactor) / 60;
-            }
-
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/bwk-onoff/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
-                data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    const tdTimestamp = document.createElement('td');
-                    tdTimestamp.innerText = row.timestamp;
-                    const tdData = document.createElement('td');
-                    tdData.innerText = JSON.stringify(row.data);
-                    tr.appendChild(tdTimestamp);
-                    tr.appendChild(tdData);
-                    table.append(tr);
-                });
-            }
-
-            async function fetchBWKParameters() {
-                const response = await fetch('/api/bwk-onoff/parameters');
-                const data = await response.json();
-                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
-                document.getElementById('threshold').value = data.threshold;
-                document.getElementById('auto_duration_minutes').value = data.auto_duration_minutes;
-                document.getElementById('enabled').checked = data.enabled !== false;
-            }
-
-            async function updateBWKParameters() {
-                const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
-                const decay_factor = halfLifeToDecayFactor(half_life_minutes);
-                const threshold = Number(document.getElementById('threshold').value);
-                const auto_duration_minutes = Number(document.getElementById('auto_duration_minutes').value);
-                const enabled = document.getElementById('enabled').checked;
-                await fetch('/api/bwk-onoff/parameters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ decay_factor, threshold, auto_duration_minutes, enabled })
-                });
-                fetchBWKParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchBWKParameters();
-            }
-        </script>
-    </head>
-    <body>
-        <h1>BWK On/Off Control</h1>
-        <a href="/">Home</a>
-        <h2>Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updateBWKParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
-            <input type="number" id="half_life_minutes" step="0.00001">
-            <label for="threshold">Threshold:</label>
-            <input type="number" id="threshold" step="0.00001">
-            <label for="auto_duration_minutes">Auto Duration (minutes):</label>
-            <input type="number" id="auto_duration_minutes" step="0.00001">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/pk_onoff', methods=['GET'])
-def pk_onoff_index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>PK On/Off Control</title>
-        {{ common_styles|safe }}
-        <script>
-            function halfLifeToDecayFactor(halfLifeMinutes) {
-                if (halfLifeMinutes <= 0) {
-                    return 0;
-                }
-                return Math.pow(2, -1 / halfLifeMinutes / 60);
-            }
-
-            function decayFactorToHalfLife(decayFactor) {
-                return - Math.log(2) / Math.log(decayFactor) / 60;
-            }
-
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/pk-onoff/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
-                data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    const tdTimestamp = document.createElement('td');
-                    tdTimestamp.innerText = row.timestamp;
-                    const tdData = document.createElement('td');
-                    tdData.innerText = JSON.stringify(row.data);
-                    tr.appendChild(tdTimestamp);
-                    tr.appendChild(tdData);
-                    table.append(tr);
-                });
-            }
-
-            async function fetchPKParameters() {
-                const response = await fetch('/api/pk-onoff/parameters');
-                const data = await response.json();
-                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
-                document.getElementById('on_threshold').value = data.on_threshold;
-                document.getElementById('off_threshold').value = data.off_threshold;
-                document.getElementById('enabled').checked = data.enabled !== false;
-            }
-
-            async function updatePKParameters() {
-                const half_life_minutes = Number(document.getElementById('half_life_minutes').value);
-                const decay_factor = halfLifeToDecayFactor(half_life_minutes);
-                const on_threshold = Number(document.getElementById('on_threshold').value);
-                const off_threshold = Number(document.getElementById('off_threshold').value);
-                const enabled = document.getElementById('enabled').checked;
-                await fetch('/api/pk-onoff/parameters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ decay_factor, on_threshold, off_threshold, enabled })
-                });
-                fetchPKParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchPKParameters();
-            }
-        </script>
-    </head>
-    <body>
-        <h1>PK On/Off Control</h1>
-        <a href="/">Home</a>
-        <h2>Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updatePKParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
-            <input type="number" id="half_life_minutes" step="0.00001">
-            <label for="on_threshold">On Threshold:</label>
-            <input type="number" id="on_threshold" step="0.00001">
-            <label for="off_threshold">Off Threshold:</label>
-            <input type="number" id="off_threshold" step="0.00001">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/bhkw_onoff', methods=['GET'])
-def bhkw_onoff_index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>BHKW On/Off Control</title>
-        {{ common_styles|safe }}
-        <script>
-            function halfLifeToDecayFactor(halfLifeMinutes) {
-                if (halfLifeMinutes <= 0) {
-                    return 0;
-                }
-                return Math.pow(2, -1 / halfLifeMinutes / 60);
-            }
-
-            function decayFactorToHalfLife(decayFactor) {
-                return - Math.log(2) / Math.log(decayFactor) / 60;
-            }
-
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/bhkw-onoff/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = '<tr><th>Timestamp</th><th>Data</th></tr>';
-                data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    const tdTimestamp = document.createElement('td');
-                    tdTimestamp.innerText = row.timestamp;
-                    const tdData = document.createElement('td');
-                    tdData.innerText = JSON.stringify(row.data);
-                    tr.appendChild(tdTimestamp);
-                    tr.appendChild(tdData);
-                    table.append(tr);
-                });
-            }
-
-            async function fetchParameters() {
-                const response = await fetch('/api/bhkw-onoff/parameters');
-                const data = await response.json();
-                document.getElementById('on_threshold').value = data.on_threshold;
-                document.getElementById('off_threshold').value = data.off_threshold;
-                document.getElementById('half_life_minutes').value = decayFactorToHalfLife(data.decay_factor).toFixed(2);
-                document.getElementById('enabled').checked = data.enabled !== false;
-            }
-
-            async function updateParameters() {
-                await fetch('/api/bhkw-onoff/parameters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        decay_factor: halfLifeToDecayFactor(Number(document.getElementById('half_life_minutes').value)),
-                        on_threshold: Number(document.getElementById('on_threshold').value),
-                        off_threshold: Number(document.getElementById('off_threshold').value),
-                        enabled: document.getElementById('enabled').checked
-                    })
-                });
-                fetchParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchParameters();
-            }
-        </script>
-    </head>
-    <body>
-        <h1>BHKW On/Off Control</h1>
-        <a href="/">Home</a>
-        <h2>Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="half_life_minutes">Half-Life for exponential mean average (minutes):</label>
-            <input type="number" id="half_life_minutes" step="0.00001">
-            <label for="on_threshold">On Threshold:</label>
-            <input type="number" id="on_threshold" step="0.00001">
-            <label for="off_threshold">Off Threshold:</label>
-            <input type="number" id="off_threshold" step="0.00001">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/feed_121517', methods=['GET'])
-def feed_121517_index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Feed 12/15/17 Control</title>
-        {{ common_styles|safe }}
-        <script>
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/feed-121517/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = `
-                    <tr><th>Timestamp</th><th colspan="8" class="thick-border">Return Values</th><th colspan="8" class="thick-border">Circulation Values</th><th colspan="2" class="thick-border">Control</th></tr>
-                    <tr>
-                        <th></th><th class="thick-border">Actual</th><th>Error</th><th>I_error</th><th>D_error</th><th>P</th><th>I</th><th>D</th><th>Control</th>
-                        <th class="thick-border">Actual</th><th>Error</th><th>I_error</th><th>D_error</th><th>P</th><th>I</th><th>D</th><th>Control</th>
-                        <th class="thick-border">Output</th><th>New Value</th>
-                    </tr>`;
-                const keys = ['timestamp', 'return.actual', 'return.error', 'return.I_error', 'return.D_error', 'return.P', 'return.I', 'return.D', 'return.control',
-                                'circulation.actual', 'circulation.error', 'circulation.I_error', 'circulation.D_error', 'circulation.P', 'circulation.I', 'circulation.D', 'circulation.control',
-                                'control_output', 'new_control_value'];
-                const digits = { 'return.D_error': 4, 'circulation.D_error': 4 };
-                function formatValue(value, digits) {
-                    return (typeof value === 'number' ? value.toFixed(digits) : value) ?? '-';
-                }
-                data.reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    keys.forEach((key) => {
-                        const td = document.createElement('td');
-                        const value = key.split('.').reduce((o, k) => (o || {})[k], row);
-                        td.innerText = formatValue(value, digits[key] ?? 2);
-                        if (key === 'return.actual' || key === 'circulation.actual' || key === 'control_output') {
-                            td.classList.add('thick-border');
-                        }
-                        tr.append(td);
-                    });
-                    table.append(tr);
-                });
-            }
-
-            function halfLifeToDecayFactor(halfLifeMinutes) {
-                if (halfLifeMinutes <= 0) {
-                    return 0;
-                }
-                return Math.pow(2, -1 / halfLifeMinutes / 60);
-            }
-
-            function decayFactorToHalfLife(decayFactor) {
-                return - Math.log(2) / Math.log(decayFactor) / 60;
-            }
-
-            async function fetchParameters() {
-                const response = await fetch('/api/feed-121517/parameters');
-                const data = await response.json();
-                document.getElementById('return_set_point').value = data.return_set_point.toFixed(2);
-                document.getElementById('circulation_set_point').value = data.circulation_set_point.toFixed(2);
-                document.getElementById('return_Kp').value = data.return_pid.Kp.toFixed(4);
-                document.getElementById('return_Ki').value = data.return_pid.Ki.toFixed(4);
-                document.getElementById('return_Kd').value = data.return_pid.Kd.toFixed(4);
-                document.getElementById('return_integration_half_life_minutes').value = decayFactorToHalfLife(data.return_pid.integration_decay_factor).toFixed(2);
-                document.getElementById('circulation_Kp').value = data.circulation_pid.Kp.toFixed(4);
-                document.getElementById('circulation_Ki').value = data.circulation_pid.Ki.toFixed(4);
-                document.getElementById('circulation_Kd').value = data.circulation_pid.Kd.toFixed(4);
-                document.getElementById('circulation_integration_half_life_minutes').value = decayFactorToHalfLife(data.circulation_pid.integration_decay_factor).toFixed(2);
-                document.getElementById('pwm_period').value = (data.pwm_period / 60).toFixed(2);
-                document.getElementById('enabled').checked = data.enabled !== false;
-            }
-
-            async function updateParameters() {
-                const return_set_point = Number(document.getElementById('return_set_point').value);
-                const circulation_set_point = Number(document.getElementById('circulation_set_point').value);
-                const return_Kp = Number(document.getElementById('return_Kp').value);
-                const return_Ki = Number(document.getElementById('return_Ki').value);
-                const return_Kd = Number(document.getElementById('return_Kd').value);
-                const return_integration_half_life_minutes = Number(document.getElementById('return_integration_half_life_minutes').value);
-                const circulation_Kp = Number(document.getElementById('circulation_Kp').value);
-                const circulation_Ki = Number(document.getElementById('circulation_Ki').value);
-                const circulation_Kd = Number(document.getElementById('circulation_Kd').value);
-                const circulation_integration_half_life_minutes = Number(document.getElementById('circulation_integration_half_life_minutes').value);
-                const pwm_period = Number(document.getElementById('pwm_period').value) * 60;
-                const enabled = document.getElementById('enabled').checked;
-                await fetch('/api/feed-121517/parameters', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        return_set_point,
-                        circulation_set_point,
-                        return_pid: { Kp: return_Kp, Ki: return_Ki, Kd: return_Kd, integration_decay_factor: halfLifeToDecayFactor(return_integration_half_life_minutes) },
-                        circulation_pid: { Kp: circulation_Kp, Ki: circulation_Ki, Kd: circulation_Kd, integration_decay_factor: halfLifeToDecayFactor(circulation_integration_half_life_minutes) },
-                        pwm_period,
-                        enabled
-                    })
-                });
-                fetchParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchParameters();
-            }
-        </script>
-    </head>
-    <body>
-        <h1>Feed 12/15/17 Control</h1>
-        <a href="/">Home</a>
-        <h2>Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="return_set_point">Return Set Point:</label>
-            <input type="number" id="return_set_point" step="0.00001">
-            <label for="circulation_set_point">Circulation Set Point:</label>
-            <input type="number" id="circulation_set_point" step="0.00001">
-            <label for="return_Kp">Return Kp:</label>
-            <input type="number" id="return_Kp" step="0.00001">
-            <label for="return_Ki">Return Ki:</label>
-            <input type="number" id="return_Ki" step="0.00001">
-            <label for="return_Kd">Return Kd:</label>
-            <input type="number" id="return_Kd" step="0.00001">
-            <label for="return_integration_half_life_minutes">Return Integration Half-Life (minutes):</label>
-            <input type="number" id="return_integration_half_life_minutes" step="0.00001">
-            <label for="circulation_Kp">Circulation Kp:</label>
-            <input type="number" id="circulation_Kp" step="0.00001">
-            <label for="circulation_Ki">Circulation Ki:</label>
-            <input type="number" id="circulation_Ki" step="0.00001">
-            <label for="circulation_Kd">Circulation Kd:</label>
-            <input type="number" id="circulation_Kd" step="0.00001">
-            <label for="circulation_integration_half_life_minutes">Circulation Integration Half-Life (minutes):</label>
-            <input type="number" id="circulation_integration_half_life_minutes" step="0.00001">
-            <label for="pwm_period">PWM Period (minutes):</label>
-            <input type="number" id="pwm_period" step="1" min="1">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/restart_wp_11', methods=['GET'])
-def restart_wp_11_index():
-    return render_template_string('''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Restart WP 11 Control</title>
-        {{ common_styles|safe }}
-        <script>
-            async function fetchDiagnostics() {
-                const response = await fetch('/api/restart-wp-11/diagnostics');
-                const data = await response.json();
-                const table = document.getElementById('diagnostics');
-                table.innerHTML = '<tr><th>Timestamp</th><th>Value</th><th>Threshold Min</th><th>Threshold Max</th><th>Threshold Delta</th><th>Alert</th><th>State</th><th>Alert Min</th><th>Alert Max</th><th>Alert State Left</th><th>Auto Reset Seconds</th><th>Action</th><th>Exception</th></tr>';
-                data.slice().reverse().forEach(row => {
-                    const tr = document.createElement('tr');
-                    const keys = ['timestamp','value','threshold_min','threshold_max','threshold_delta','alert','state','alert_min','alert_max','alert_state_left','auto_reset_seconds','action','exception'];
-                    keys.forEach((key) => {
-                        const td = document.createElement('td');
-                        td.innerText = row[key] !== undefined ? row[key] : '-';
-                        tr.append(td);
-                    });
-                    table.append(tr);
-                });
-            }
-
-            async function fetchParameters() {
-                const response = await fetch('/api/restart-wp-11/parameters');
-                const data = await response.json();
-                document.getElementById('enabled').checked = data.enabled !== false;
-                const autoReset = data.hotgas_temp.auto_reset_seconds;
-                document.getElementById('auto_reset_enabled').checked = autoReset !== null && autoReset !== undefined;
-                document.getElementById('auto_reset_seconds').value = autoReset !== null && autoReset !== undefined ? autoReset : '';
-                document.getElementById('auto_reset_seconds').disabled = !(autoReset !== null && autoReset !== undefined);
-            }
-
-            function onAutoResetEnabledChanged() {
-                const enabled = document.getElementById('auto_reset_enabled').checked;
-                document.getElementById('auto_reset_seconds').disabled = !enabled;
-            }
-
-            async function updateParameters() {
-                const enabled = document.getElementById('enabled').checked;
-                const auto_reset_enabled = document.getElementById('auto_reset_enabled').checked;
-                let auto_reset_seconds = null;
-                if (auto_reset_enabled) {
-                    const val = document.getElementById('auto_reset_seconds').value;
-                    auto_reset_seconds = val === '' ? null : Number(val);
-                }
-                await fetch('/api/restart-wp-11/parameters', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled, hotgas_temp: { auto_reset_seconds } })
-                });
-                fetchParameters();
-            }
-
-            setInterval(fetchDiagnostics, 5000);
-            window.onload = function() {
-                fetchDiagnostics();
-                fetchParameters();
-                document.getElementById('auto_reset_enabled').addEventListener('change', onAutoResetEnabledChanged);
-            }
-        </script>
-    </head>
-    <body>
-        <h1>Restart WP 11 Control</h1>
-        <a href="/">Home</a>
-        <h2>Parameters</h2>
-        <form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
-            <label for="enabled">Enable Control:</label>
-            <input type="checkbox" id="enabled">
-            <label for="auto_reset_enabled">Enable Auto Reset:</label>
-            <input type="checkbox" id="auto_reset_enabled">
-            <label for="auto_reset_seconds">Auto Reset Seconds:</label>
-            <input type="number" id="auto_reset_seconds" step="1">
-            <button type="submit">Set Parameters</button>
-        </form>
-        <h2>Diagnostics</h2>
-        <table id="diagnostics"></table>
-    </body>
-    </html>
-    ''', common_styles=common_styles)
-
-@app.route('/api/return-mixin/diagnostics', methods=['GET'])
-def get_return_mixin_diagnostics():
-    with return_mixin_lock:
-        return jsonify(return_mixin_diagnostics)
-
-@app.route('/api/bwk-onoff/diagnostics', methods=['GET'])
-def get_bwk_onoff_diagnostics():
-    with bwk_onoff_lock:
-        return jsonify(bwk_onoff_diagnostics)
-
-@app.route('/api/pk-onoff/diagnostics', methods=['GET'])
-def get_pk_onoff_diagnostics():
-    with pk_onoff_lock:
-        return jsonify(pk_onoff_diagnostics)
-
-@app.route('/api/bhkw-onoff/diagnostics', methods=['GET'])
-def get_bhkw_onoff_diagnostics():
-    with bhkw_onoff_lock:
-        return jsonify(bhkw_onoff_diagnostics)
-
-@app.route('/api/feed-121517/diagnostics', methods=['GET'])
-def get_feed_121517_diagnostics():
-    with feed_121517_lock:
-        return jsonify(feed_121517_diagnostics)
-
-@app.route('/api/restart-wp-11/diagnostics', methods=['GET'])
-def get_restart_wp_11_diagnostics():
-    with restart_wp_11_lock:
-        return jsonify(restart_wp_11_diagnostics)
-
-@app.route('/api/return-mixin/parameters', methods=['GET', 'POST'])
-def return_mixin_parameters():
-    if request.method == 'POST':
-        return_mixin.set_parameters(request.json)
-    return jsonify(return_mixin.get_parameters())
-
-@app.route('/api/bwk-onoff/parameters', methods=['GET', 'POST'])
-def bwk_onoff_parameters():
-    if request.method == 'POST':
-        bwk_onoff.set_parameters(request.json)
-    return jsonify(bwk_onoff.get_parameters())
-
-@app.route('/api/pk-onoff/parameters', methods=['GET', 'POST'])
-def pk_onoff_parameters():
-    if request.method == 'POST':
-        pk_onoff.set_parameters(request.json)
-    return jsonify(pk_onoff.get_parameters())
-
-@app.route('/api/bhkw-onoff/parameters', methods=['GET', 'POST'])
-def bhkw_onoff_parameters():
-    if request.method == 'POST':
-        bhkw_onoff.set_parameters(request.json)
-    return jsonify(bhkw_onoff.get_parameters())
-
-@app.route('/api/feed-121517/parameters', methods=['GET', 'POST'])
-def feed_121517_parameters():
-    if request.method == 'POST':
-        feed_121517.set_parameters(request.json)
-    return jsonify(feed_121517.get_parameters())
-
-@app.route('/api/restart-wp-11/parameters', methods=['GET', 'POST'])
-def restart_wp_11_parameters():
-    if request.method == 'GET':
-        return jsonify(restart_wp_11.get_parameters())
-    else:
-        params = request.get_json(force=True)
-        restart_wp_11.set_parameters(params)
-        return jsonify({'status': 'ok'})
-
-async def feed_121517_combined_loop():
+# Special handling for feed_121517
+def feed_121517_control_loop():
+  async def combined_loop():
     await feed_121517.setup_mqtt()
     while True:
-        diagnostics = feed_121517.control_loop()
-        with feed_121517_lock:
-            feed_121517_diagnostics.append(diagnostics)
-            if len(feed_121517_diagnostics) > 1000:
-                feed_121517_diagnostics.pop(0)
-        await asyncio.sleep(30)
+      diagnostics = feed_121517.control_loop()
+      controller_manager.add_diagnostic_entry("feed-121517", diagnostics)
+      await asyncio.sleep(30)
 
-def feed_121517_control_loop_with_diagnostics():
-    asyncio.run(feed_121517_combined_loop())
+  asyncio.run(combined_loop())
 
-def return_mixin_control_loop_with_diagnostics():
-    global return_mixin_diagnostics
-    while True:
-        with return_mixin_lock:
-            return_mixin_diagnostics.append(return_mixin.control_loop())
-            if len(return_mixin_diagnostics) > 100:
-                return_mixin_diagnostics.pop(0)
-        time.sleep(5)
+CONTROLLER_CONFIGS.append(
+  ControllerConfig(
+    name="feed-121517",
+    title="Feed 12/15/17 Control",
+    module=feed_121517,
+    max_diagnostics=1000,
+    template="feed_121517.html",
+    control_loop_handler=feed_121517_control_loop
+  )
+)
 
-def bwk_onoff_control_loop_with_diagnostics():
-    global bwk_onoff_diagnostics
-    while True:
-        with bwk_onoff_lock:
-            diagnostics = bwk_onoff.control_loop()
-            timestamp = diagnostics.pop('timestamp')
-            bwk_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
-            if len(bwk_onoff_diagnostics) > 100:
-                bwk_onoff_diagnostics.pop(0)
-        time.sleep(30)
+# Register all controllers
+for config in CONTROLLER_CONFIGS:
+  controller_manager.register_controller(config)
 
-def pk_onoff_control_loop_with_diagnostics():
-    global pk_onoff_diagnostics
-    while True:
-        with pk_onoff_lock:
-            diagnostics = pk_onoff.control_loop()
-            timestamp = diagnostics.pop('timestamp')
-            pk_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
-            if len(pk_onoff_diagnostics) > 100:
-                pk_onoff_diagnostics.pop(0)
-        time.sleep(30)
+@app.route('/')
+def home():
+  """Home page with links to all controllers"""
+  controllers = list(controller_manager.controllers.values())
+  return render_template('home.html', controllers=controllers)
 
-def bhkw_onoff_control_loop_with_diagnostics():
-    global bhkw_onoff_diagnostics
-    while True:
-        with bhkw_onoff_lock:
-            diagnostics = bhkw_onoff.control_loop()
-            timestamp = diagnostics.pop('timestamp')
-            bhkw_onoff_diagnostics.append({'timestamp': timestamp, 'data': diagnostics})
-            if len(bhkw_onoff_diagnostics) > 100:
-                bhkw_onoff_diagnostics.pop(0)
-        time.sleep(30)
+def create_routes():
+  """Dynamically create routes for all controllers"""
 
-def restart_wp_11_control_loop_with_diagnostics():
-    global restart_wp_11_diagnostics
-    while True:
-        diagnostics = restart_wp_11.control_loop()
-        # timestamp is already set in diagnostics by restart_wp_11.control_loop
-        with restart_wp_11_lock:
-            restart_wp_11_diagnostics.append(diagnostics)
-            if len(restart_wp_11_diagnostics) > 1100:
-                restart_wp_11_diagnostics = restart_wp_11_diagnostics[-1000:]
-        time.sleep(5)
+  for config in CONTROLLER_CONFIGS:
+    # Create view route
+    def make_view_handler(config):
+      def view_handler():
+        return render_template(config.template,
+                   title=config.title,
+                   api_path=config.api_path,
+                   controller_name=config.name)
+      return view_handler
 
-def start_control_loops():
-    return_mixin_thread = threading.Thread(target=return_mixin_control_loop_with_diagnostics)
-    return_mixin_thread.daemon = True
-    return_mixin_thread.start()
+    app.add_url_rule(f'/{config.route_path}',
+            f'{config.name}_index',
+            make_view_handler(config))
 
-    bwk_onoff_thread = threading.Thread(target=bwk_onoff_control_loop_with_diagnostics)
-    bwk_onoff_thread.daemon = True
-    bwk_onoff_thread.start()
+    # Create diagnostics API route
+    def make_diagnostics_handler(config):
+      def diagnostics_handler():
+        return jsonify(controller_manager.get_diagnostics(config.name))
+      return diagnostics_handler
 
-    pk_onoff_thread = threading.Thread(target=pk_onoff_control_loop_with_diagnostics)
-    pk_onoff_thread.daemon = True
-    pk_onoff_thread.start()
+    app.add_url_rule(f'/api/{config.api_path}/diagnostics',
+            f'get_{config.name}_diagnostics',
+            make_diagnostics_handler(config))
 
-    bhkw_onoff_thread = threading.Thread(target=bhkw_onoff_control_loop_with_diagnostics)
-    bhkw_onoff_thread.daemon = True
-    bhkw_onoff_thread.start()
+    # Create parameters API route
+    def make_parameters_handler(config):
+      def parameters_handler():
+        if request.method == 'POST':
+          if hasattr(config.module, 'set_parameters'):
+            config.module.set_parameters(request.json)
+          else:
+            # Handle restart_wp_11 special case
+            params = request.get_json(force=True)
+            config.module.set_parameters(params)
+            return jsonify({'status': 'ok'})
 
-    feed_121517_thread = threading.Thread(target=feed_121517_control_loop_with_diagnostics)
-    feed_121517_thread.daemon = True
-    feed_121517_thread.start()
+        return jsonify(config.module.get_parameters())
+      return parameters_handler
 
-    restart_wp_11_thread = threading.Thread(target=restart_wp_11_control_loop_with_diagnostics)
-    restart_wp_11_thread.daemon = True
-    restart_wp_11_thread.start()
+    app.add_url_rule(f'/api/{config.api_path}/parameters',
+            f'{config.name}_parameters',
+            make_parameters_handler(config),
+            methods=['GET', 'POST'])
+
+# Create all routes
+create_routes()
 
 if __name__ == '__main__':
-    start_control_loops()
-    app.run(host='localhost', port=5000)
-
+  controller_manager.start_control_loops()
+  app.run(host='localhost', port=5000)

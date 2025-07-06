@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>{{ title }} - PyADS Control</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+      table {
+        width: 60em;
+        border-collapse: collapse;
+      }
+      th,
+      td {
+        border: 1px solid black;
+        padding: 4px;
+        text-align: center;
+      }
+      th {
+        background-color: #cecece;
+      }
+      tr:nth-child(odd) {
+        background-color: #e8e8e8;
+      }
+      .thick-border {
+        border-left: 3px solid black;
+      }
+      .form-grid {
+        display: grid;
+        grid-template-columns: max-content auto;
+        gap: 0.5em;
+        align-items: center;
+      }
+      .form-grid label {
+        text-align: right;
+      }
+      .form-grid button {
+        grid-column: 2;
+        justify-self: start;
+      }
+    </style>
+    <script src="/static/common.js"></script>
+    {% block extra_scripts %}{% endblock %}
+  </head>
+  <body>
+    <h1>{{ title }}</h1>
+    <a href="/">Home</a>
+
+    {% block content %}{% endblock %}
+    <!-- Initialize page-specific functionality -->
+    {% block page_init %}{% endblock %}
+    <script>
+      // Common initialization
+      setInterval(fetchDiagnostics, 5000);
+      window.onload = function () {
+        fetchDiagnostics();
+        fetchParameters();
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,114 @@
+{% extends "base.html" %} {% block content %}
+<h2>Parameters</h2>
+<form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+  <label for="enabled">Enable Control:</label>
+  <input type="checkbox" id="enabled" />
+
+  <label for="auto_reset_enabled">Enable Auto Reset:</label>
+  <input type="checkbox" id="auto_reset_enabled" />
+
+  <label for="auto_reset_seconds">Auto Reset Seconds:</label>
+  <input type="number" id="auto_reset_seconds" step="1" />
+
+  <button type="submit">Set Parameters</button>
+</form>
+
+<h2>Diagnostics</h2>
+<table id="diagnostics"></table>
+{% endblock %} {% block page_init %}
+<script>
+  async function fetchDiagnostics() {
+    const data = await apiGet("/api/{{ api_path }}/diagnostics");
+    const table = document.getElementById("diagnostics");
+    table.innerHTML = `
+    <tr>
+      <th>Timestamp</th>
+      <th>Value</th>
+      <th>Threshold Min</th>
+      <th>Threshold Max</th>
+      <th>Threshold Delta</th>
+      <th>Alert</th>
+      <th>State</th>
+      <th>Alert Min</th>
+      <th>Alert Max</th>
+      <th>Alert State Left</th>
+      <th>Auto Reset Seconds</th>
+      <th>Action</th>
+      <th>Exception</th>
+    </tr>`;
+
+    data
+      .slice()
+      .reverse()
+      .forEach((row) => {
+        const tr = document.createElement("tr");
+        const keys = [
+          "timestamp",
+          "value",
+          "threshold_min",
+          "threshold_max",
+          "threshold_delta",
+          "alert",
+          "state",
+          "alert_min",
+          "alert_max",
+          "alert_state_left",
+          "auto_reset_seconds",
+          "action",
+          "exception",
+        ];
+        keys.forEach((key) => {
+          const td = createTableCell(row[key] !== undefined ? row[key] : "-");
+          tr.append(td);
+        });
+        table.append(tr);
+      });
+  }
+
+  async function fetchParameters() {
+    const data = await apiGet("/api/{{ api_path }}/parameters");
+    setFormValue("enabled", data.enabled, true);
+
+    const autoReset = data.hotgas_temp.auto_reset_seconds;
+    setFormValue(
+      "auto_reset_enabled",
+      autoReset !== null && autoReset !== undefined,
+      true
+    );
+    setFormValue(
+      "auto_reset_seconds",
+      autoReset !== null && autoReset !== undefined ? autoReset : ""
+    );
+    document.getElementById("auto_reset_seconds").disabled = !(
+      autoReset !== null && autoReset !== undefined
+    );
+  }
+
+  function onAutoResetEnabledChanged() {
+    const enabled = getFormValue("auto_reset_enabled", true);
+    document.getElementById("auto_reset_seconds").disabled = !enabled;
+  }
+
+  async function updateParameters() {
+    const enabled = getFormValue("enabled", true);
+    const auto_reset_enabled = getFormValue("auto_reset_enabled", true);
+    let auto_reset_seconds = null;
+    if (auto_reset_enabled) {
+      const val = document.getElementById("auto_reset_seconds").value;
+      auto_reset_seconds = val === "" ? null : Number(val);
+    }
+
+    await apiPost("/api/{{ api_path }}/parameters", {
+      enabled,
+      hotgas_temp: { auto_reset_seconds },
+    });
+    fetchParameters();
+  }
+  window.addEventListener("load", () => {
+    document
+      .getElementById("auto_reset_enabled")
+      .addEventListener("change", onAutoResetEnabledChanged);
+    onAutoResetEnabledChanged();
+  });
+</script>
+{% endblock %}
