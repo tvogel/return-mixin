@@ -11,6 +11,7 @@ import asyncio
 from gmqtt import Client as MQTTClient
 from ema import EMA
 from base_control_module import BaseControlModule
+import uuid
 
 actual_return_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_RL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
@@ -118,9 +119,10 @@ class Feed121517(BaseControlModule):
       integration_decay_factor = 0.5 ** (1/60)
     )
     self.actual_circulation = None
+    self.mqtt_client_id = f"feed_121517_{uuid.uuid4()}"
 
   async def setup_mqtt(self):
-    self.mqtt_client = MQTTClient("feed_121517")
+    self.mqtt_client = MQTTClient(self.mqtt_client_id)
     self.mqtt_client.on_connect = on_connect
     self.mqtt_client.on_message = on_message
     await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
