@@ -10,6 +10,7 @@ import os
 import asyncio
 from gmqtt import Client as MQTTClient
 from ema import EMA
+from base_control_module import BaseControlModule
 
 actual_return_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_RL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
@@ -23,57 +24,16 @@ CONTROL_AUTO = 1
 CONTROL_OFF = 2
 CONTROL_ON = 3
 
-return_set_point = 52 # degrees
-circulation_set_point = 56 # degrees
 control_range = (-20, 100)  # Extended range
 
 # PWM parameters
-pwm_period = 300.0  # seconds, user-configurable (default: 5 minutes)
-
-# Lock for PID parameters
-parameter_lock = threading.Lock()
-
-plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
-plc.open()
-
-last_control = None
-last_update = None
-
-PARAMS_FILE = os.path.join(os.path.dirname(__file__), 'feed_121517_params.json')
-
-mqtt_client = None
-actual_circulation = None
-
-# State for PWM
-pwm_state = {
-  'active': False,
-  'last_update': None,
-  'cycle_start': None,
-  'on': False
-}
+DEFAULT_PWM_PERIOD = 300.0  # seconds, user-configurable (default: 5 minutes)
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
 
 def on_message(client, topic, payload, qos, properties):
-  global actual_circulation
-  try:
-    # print(f"Received message on topic {topic}: {payload}")
-    actual_circulation = {
-        "value": json.loads(payload),
-        "timestamp": datetime.datetime.now()
-    }
-    # print(f"Received parameters: {actual_circulation}")
-  except json.JSONDecodeError as e:
-    print(f"Failed to decode MQTT message: {e}")
-
-async def setup_mqtt():
-  global mqtt_client
-  mqtt_client = MQTTClient("feed_121517")
-  mqtt_client.on_connect = on_connect
-  mqtt_client.on_message = on_message
-  await mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
-  mqtt_client.subscribe(MQTT_TOPIC)
+  feed_121517.actual_circulation_mqtt(payload)
 
 class FD1:
   def __init__(self):
@@ -126,175 +86,171 @@ class PID:
     self.Kd = params.get('Kd', self.Kd)
     self.op_I.decay_factor = params.get('integration_decay_factor', self.op_I.decay_factor)
 
-
-return_pid = PID(
-  Kp = 1 / 60, # percent per second per degree
-  Ki = 1 / 60, # percent per second per long-term degree
-  Kd = 0 / 60, # percent per second per degree change per second,
-  integration_decay_factor = 0.5 ** (1/60) # 50% per minute
-)
-
-circulation_pid = PID(
-  Kp = 1 / 60, # percent per second per degree
-  Ki = 1 / 60, # percent per second per long-term degree
-  Kd = 0 / 60, # percent per second per degree change per second,
-  integration_decay_factor = 0.5 ** (1/60) # 50% per minute
-)
-
-def load_parameters():
-  try:
-    with open(PARAMS_FILE, 'r') as f:
-      params = json.load(f)
-      set_parameters(params)
-  except FileNotFoundError:
-    save_parameters()
-
-def save_parameters():
-  params = get_parameters()
-  with open(PARAMS_FILE, 'w') as f:
-    json.dump(params, f)
-
-enabled = True
-
-def set_parameters(params):
-  global return_set_point, circulation_set_point, return_pid, pwm_period, enabled
-  with parameter_lock:
-    enabled = params.get('enabled', enabled)
-    return_set_point = params.get('return_set_point', return_set_point)
-    circulation_set_point = params.get('circulation_set_point', circulation_set_point)
-    return_pid.set_parameters(params.get('return_pid', return_pid.parameters()))
-    circulation_pid.set_parameters(params.get('circulation_pid', circulation_pid.parameters()))
-    pwm_period = params.get('pwm_period', pwm_period)
-  save_parameters()
-
-def get_parameters():
-  with parameter_lock:
-    return {
-        'enabled': enabled,
-        'return_set_point': return_set_point,
-        'circulation_set_point': circulation_set_point,
-        'return_pid': return_pid.parameters(),
-        'circulation_pid': circulation_pid.parameters(),
-        'pwm_period': pwm_period
-    }
-
 def bounded(value, min_value, max_value):
   return max(min(value, max_value), min_value)
 
-async def control_loop():
-  global last_control, last_update, actual_circulation, pwm_state, enabled
+class Feed121517(BaseControlModule):
+  # Instance variable for MQTT callback
+  def __init__(self):
+    super().__init__(
+      plc_ams_net_id='192.168.35.21.1.1',
+      plc_ams_port=pyads.PORT_TC3PLC1,
+      param_filename='feed_121517_params.json'
+    )
+    self.return_set_point = 52 # degrees
+    self.circulation_set_point = 56 # degrees
+    self.pwm_period = DEFAULT_PWM_PERIOD
+    self.last_control = None
+    self.last_update = None
+    self.pwm_state = {
+      'cycle_start': None,
+    }
+    self.return_pid = PID(
+      Kp = 1 / 60,
+      Ki = 1 / 60,
+      Kd = 0 / 60,
+      integration_decay_factor = 0.5 ** (1/60)
+    )
+    self.circulation_pid = PID(
+      Kp = 1 / 60,
+      Ki = 1 / 60,
+      Kd = 0 / 60,
+      integration_decay_factor = 0.5 ** (1/60)
+    )
+    self.actual_circulation = None
 
-  diagnostics = {}
-  now = datetime.datetime.now()
-  diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+  async def setup_mqtt(self):
+    self.mqtt_client = MQTTClient("feed_121517")
+    self.mqtt_client.on_connect = on_connect
+    self.mqtt_client.on_message = on_message
+    await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
+    self.mqtt_client.subscribe(MQTT_TOPIC)
 
-  if not enabled:
-    diagnostics['disabled'] = True
-    return diagnostics
+  def actual_circulation_mqtt(self, payload):
+    try:
+      value = json.loads(payload)
+      self.actual_circulation = {
+        "value": value,
+        "timestamp": datetime.datetime.now()
+      }
+    except Exception as e:
+      print(f"Failed to decode MQTT message: {e}")
 
-  dt = (now - last_update).total_seconds() if last_update else None
-  last_update = now
-  if last_control is None:
-    last_control = control_range[0] if plc.read_by_name(control_bws_name) == CONTROL_OFF else plc.read_by_name(control_value_name)
-  try:
-    with parameter_lock:
-      actual_return_value = plc.read_by_name(actual_return_value_name)
-      control_output_return = return_pid.update(return_set_point - actual_return_value, dt)
+  def _set_module_parameters(self, params):
+    self.return_set_point = params.get('return_set_point', self.return_set_point)
+    self.circulation_set_point = params.get('circulation_set_point', self.circulation_set_point)
+    self.return_pid.set_parameters(params.get('return_pid', self.return_pid.parameters()))
+    self.circulation_pid.set_parameters(params.get('circulation_pid', self.circulation_pid.parameters()))
+    self.pwm_period = params.get('pwm_period', self.pwm_period)
 
-      control_output_circulation = None
-      if actual_circulation and actual_circulation['timestamp']:
-        # Check if the actual_circulation is recent enough
-        if (now - actual_circulation['timestamp']).total_seconds() > 60:
-          print("Actual circulation data is too old, skipping circulation control")
-          actual_circulation = None
-      if actual_circulation:
-        control_output_circulation = circulation_pid.update(circulation_set_point - actual_circulation['value'], dt)
+  def _get_module_parameters(self):
+    return {
+      'return_set_point': self.return_set_point,
+      'circulation_set_point': self.circulation_set_point,
+      'return_pid': self.return_pid.parameters(),
+      'circulation_pid': self.circulation_pid.parameters(),
+      'pwm_period': self.pwm_period
+    }
 
-      control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
+  def _control_action(self, now):
+    diagnostics = {}
+    dt = (now - self.last_update).total_seconds() if self.last_update else None
+    self.last_update = now
+    plc = self.plc
 
-      current_control_value = plc.read_by_name(control_value_name)
-      new_control_value = control_output * dt + last_control if dt else last_control
-      new_control_value = bounded(new_control_value, *control_range)
-      if not actual_circulation:
-        # If no circulation data, use a safer minimum value
-        new_control_value = bounded(new_control_value, 0.5 * control_range[0], control_range[1])
-      last_control = new_control_value
+    if self.last_control is None:
+      self.last_control = control_range[0] if plc.read_by_name(control_bws_name) == CONTROL_OFF else plc.read_by_name(control_value_name)
 
-      # PWM logic for (-20, 0)
-      if new_control_value < 0:
-        # Calculate duty cycle: 10% at -20, 100% at 0
-        duty_cycle = 0.9 * (new_control_value + 20) / 20 + 0.1 # (0.1, 1)
-        # Setup PWM cycle
-        if pwm_state['cycle_start'] is None:
-          pwm_state['cycle_start'] = now
-        else:
-          elapsed_total = (now - pwm_state['cycle_start']).total_seconds()
-          if elapsed_total >= pwm_period:
-            # Advance cycle_start to the start of the current period
-            pwm_state['cycle_start'] = now - datetime.timedelta(seconds=elapsed_total % pwm_period)
-        elapsed = (now - pwm_state['cycle_start']).total_seconds()
-        on_time = duty_cycle * pwm_period
-        pwm_on = elapsed < on_time
-        # Set outputs
-        plc.write_by_name(control_value_name, 0)
-        plc.write_by_name(control_bws_name, CONTROL_ON if pwm_on else CONTROL_OFF)
-        diagnostics['pwm'] = {
-          'duty_cycle': duty_cycle,
-          'pwm_on': pwm_on,
-          'elapsed': elapsed,
-          'on_time': on_time,
-          'period': pwm_period
-        }
+    actual_return_value = plc.read_by_name(actual_return_value_name)
+    control_output_return = self.return_pid.update(self.return_set_point - actual_return_value, dt)
+
+    # Circulation from MQTT
+    actual_circulation = self.actual_circulation
+    control_output_circulation = None
+    if actual_circulation and actual_circulation['timestamp']:
+      if (now - actual_circulation['timestamp']).total_seconds() > 60:
+        print("Actual circulation data is too old, skipping circulation control")
+        self.actual_circulation = None
+        actual_circulation = None
+    if actual_circulation:
+      control_output_circulation = self.circulation_pid.update(self.circulation_set_point - actual_circulation['value'], dt)
+
+    control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
+
+    current_control_value = plc.read_by_name(control_value_name)
+    new_control_value = control_output * dt + self.last_control if dt else self.last_control
+    new_control_value = bounded(new_control_value, *control_range)
+    if not actual_circulation:
+      new_control_value = bounded(new_control_value, 0.5 * control_range[0], control_range[1])
+    self.last_control = new_control_value
+
+    # PWM logic for (-20, 0)
+    if new_control_value < 0:
+      duty_cycle = 0.9 * (new_control_value + 20) / 20 + 0.1 # (0.1, 1)
+      if self.pwm_state['cycle_start'] is None:
+        self.pwm_state['cycle_start'] = now
       else:
-        # Normal range (>= 0)
-        plc.write_by_name(control_bws_name, CONTROL_ON)
-        plc.write_by_name(control_value_name, new_control_value)
+        elapsed_total = (now - self.pwm_state['cycle_start']).total_seconds()
+        if elapsed_total >= self.pwm_period:
+          self.pwm_state['cycle_start'] = now - datetime.timedelta(seconds=elapsed_total % self.pwm_period)
+      elapsed = (now - self.pwm_state['cycle_start']).total_seconds()
+      on_time = duty_cycle * self.pwm_period
+      pwm_on = elapsed < on_time
+      plc.write_by_name(control_value_name, 0)
+      plc.write_by_name(control_bws_name, CONTROL_ON if pwm_on else CONTROL_OFF)
+      diagnostics['pwm'] = {
+        'duty_cycle': duty_cycle,
+        'pwm_on': pwm_on,
+        'elapsed': elapsed,
+        'on_time': on_time,
+        'period': self.pwm_period
+      }
+    else:
+      plc.write_by_name(control_bws_name, CONTROL_ON)
+      plc.write_by_name(control_value_name, new_control_value)
 
     diagnostics |= {
       'dt': dt,
       'return': {
         'actual': actual_return_value,
-        'error': return_pid.error,
-        'I_error': return_pid.I_error,
-        'D_error': return_pid.D_error,
-        'P': return_pid.P,
-        'I': return_pid.I,
-        'D': return_pid.D,
+        'error': self.return_pid.error,
+        'I_error': self.return_pid.I_error,
+        'D_error': self.return_pid.D_error,
+        'P': self.return_pid.P,
+        'I': self.return_pid.I,
+        'D': self.return_pid.D,
         'control': control_output_return,
       },
       'circulation': {
         'actual': actual_circulation['value'] if actual_circulation else None,
-        'error': circulation_pid.error,
-        'I_error': circulation_pid.I_error,
-        'D_error': circulation_pid.D_error,
-        'P': circulation_pid.P,
-        'I': circulation_pid.I,
-        'D': circulation_pid.D,
+        'error': self.circulation_pid.error,
+        'I_error': self.circulation_pid.I_error,
+        'D_error': self.circulation_pid.D_error,
+        'P': self.circulation_pid.P,
+        'I': self.circulation_pid.I,
+        'D': self.circulation_pid.D,
         'control': control_output_circulation,
       },
       'control_output': control_output,
       'new_control_value': new_control_value
     }
+    return diagnostics
 
-  except Exception as e:
-    print(e)
-
-  return diagnostics
+feed_121517 = Feed121517()
 
 async def main(stop_requested):
-  await setup_mqtt()
+  await feed_121517.setup_mqtt()
   while not stop_requested():
-    diagnostics = await control_loop()
+    diagnostics = feed_121517.control_loop()
     print(diagnostics, flush=True)
     print(flush=True)
-
     try:
       await asyncio.sleep(5)
     except:
       break
   return 0
 
-load_parameters()
+feed_121517.load_parameters()
 
 if __name__ == '__main__':
   asyncio.run(main(lambda: False))

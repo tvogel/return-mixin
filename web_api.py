@@ -6,7 +6,7 @@ import return_mixin
 from bwk_onoff import bwk_onoff
 import pk_onoff
 from bhkw_onoff import bhkw_onoff
-import feed_121517
+from feed_121517 import feed_121517
 import restart_wp_11
 import threading
 import time
@@ -771,7 +771,7 @@ def restart_wp_11_parameters():
 async def feed_121517_combined_loop():
     await feed_121517.setup_mqtt()
     while True:
-        diagnostics = await feed_121517.control_loop()
+        diagnostics = feed_121517.control_loop()
         with feed_121517_lock:
             feed_121517_diagnostics.append(diagnostics)
             if len(feed_121517_diagnostics) > 1000:
