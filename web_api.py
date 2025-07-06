@@ -4,7 +4,7 @@
 from flask import Flask, request, jsonify, render_template_string
 import return_mixin
 from bwk_onoff import bwk_onoff
-import pk_onoff
+from pk_onoff import pk_onoff
 from bhkw_onoff import bhkw_onoff
 from feed_121517 import feed_121517
 import restart_wp_11
