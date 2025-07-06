@@ -29,8 +29,7 @@ class EMA:
     if self.last is None:
       self.last = value
       return self.last
-    with parameter_lock:
-      last_weight = self.decay_factor ** dt
+    last_weight = self.decay_factor ** dt
     self.last = last_weight * self.last + (1 - last_weight) * value
     return self.last
 

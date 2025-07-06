@@ -59,24 +59,25 @@ class BaseControlModule(ABC):
     pass
 
   def control_loop(self):
-    if not self.plc.is_open:
-      self.plc.open()
-    diagnostics = {}
-    now = datetime.datetime.now()
-    diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
-    if not self.enabled:
-      diagnostics['disabled'] = True
+    with self.parameter_lock:
+      if not self.plc.is_open:
+        self.plc.open()
+      diagnostics = {}
+      now = datetime.datetime.now()
+      diagnostics['timestamp'] = now.replace(microsecond=0).isoformat()
+      if not self.enabled:
+        diagnostics['disabled'] = True
+        return diagnostics
+      try:
+        diagnostics |= self._control_action(now)
+      except pyads.ADSError as e:
+        diagnostics['exception'] = repr(e)
+        self.plc.close()
+        self.reopen_plc()
+      except Exception as e:
+        diagnostics['exception'] = repr(e)
+        print(e)
       return diagnostics
-    try:
-      diagnostics |= self._control_action(now)
-    except pyads.ADSError as e:
-      diagnostics['exception'] = repr(e)
-      self.plc.close()
-      self.reopen_plc()
-    except Exception as e:
-      diagnostics['exception'] = repr(e)
-      print(e)
-    return diagnostics
 
   @abstractmethod
   def _control_action(self, now):

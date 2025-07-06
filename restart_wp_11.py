@@ -30,9 +30,6 @@ class RestartWP11(BaseControlModule):
   def _control_action(self, now):
     return self.hotgas_temp.update()
 
-# Lock for parameters
-parameter_lock = threading.Lock()
-
 def open_plc():
   global plc
   plc = pyads.Connection('192.168.35.32.1.1', pyads.PORT_TC3PLC1)
