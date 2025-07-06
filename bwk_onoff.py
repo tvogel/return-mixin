@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from unittest.mock import Base
 import pyads
 import datetime
 import time
-import threading
-import json
-import os
 import control
 from pk import PK
 from base_control_module import BaseControlModule

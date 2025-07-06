@@ -4,11 +4,7 @@
 import pyads
 import datetime
 import time
-import threading
-import json
-import os
 from suntimes import SunTimes
-from ema import EMA
 import control
 from pk import PK
 from buffer_tank import BufferTank

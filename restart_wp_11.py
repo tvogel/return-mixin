@@ -3,12 +3,9 @@
 
 from re import S
 import pyads
-import datetime
 import time
-import threading
 import json
 import os
-import control
 from base_control_module import BaseControlModule
 from min_max_value import MinMaxValue
 

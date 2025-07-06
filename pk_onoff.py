@@ -2,11 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pyads
-import datetime
 import time
-import threading
-import json
-import os
 import control
 from pk import PK
 from buffer_tank import BufferTank
