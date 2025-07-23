@@ -34,7 +34,7 @@ def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
 
 def on_message(client, topic, payload, qos, properties):
-  feed_121517.actual_circulation_mqtt(payload)
+  feed_121517.actual_circulation_mqtt(payload, properties)
 
 class FD1:
   def __init__(self):
@@ -128,7 +128,10 @@ class Feed121517(BaseControlModule):
     await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
     self.mqtt_client.subscribe(MQTT_TOPIC)
 
-  def actual_circulation_mqtt(self, payload):
+  def actual_circulation_mqtt(self, payload, properties):
+    if properties['retain']:
+      return
+
     try:
       value = json.loads(payload)
       self.actual_circulation = {
