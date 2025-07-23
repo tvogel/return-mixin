@@ -7,6 +7,7 @@ import time
 import control
 from pk import PK
 from base_control_module import BaseControlModule
+from distribution import any_consumer_on
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
@@ -60,6 +61,7 @@ class BwkOnOff(BaseControlModule):
     current_control_bwk = plc.read_by_name(control_bwk_name)
     pk = PK(self.plc)
     pk.read()
+    consumption = any_consumer_on(self.plc)
 
     dt = (now - self.last_update_dt).total_seconds() if self.last_update_dt else None
     self.last_update_dt = now
@@ -67,13 +69,14 @@ class BwkOnOff(BaseControlModule):
     diagnostics = {
       'value': round(actual_value, 2),
       'value_ema': round(self.value_ema.last, 2),
-      'bwk': control.control_str(current_control_bwk)
+      'bwk': control.control_str(current_control_bwk),
+      'consumption': consumption,
     }
     if self.auto_off_dt:
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
     if current_control_bwk != control.ON:
-      if self.value_ema.last < self.threshold:
+      if consumption and self.value_ema.last < self.threshold:
         plc.write_by_name(control_bwk_name, control.AUTO)
         diagnostics['control_bwk'] = 'auto'
         self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)

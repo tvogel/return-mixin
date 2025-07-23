@@ -5,16 +5,11 @@ import pyads
 import time
 from base_control_module import BaseControlModule
 from ema import EMA
+from distribution import any_consumer_on
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
 control_onoff_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.BWS.iStellung'
-consumer_names = [
-  'PRG_HE.FB_Hk_Haus_7_8_11.FB_Pumpe.bBetrieb',
-  'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.bBetrieb',
-  'PRG_HE.FB_Hk_Haus_28_42.FB_Pumpe.bBetrieb',
-  'PRG_HE.FB_TWW.FB_Ladepumpe.bBetrieb'
-]
 
 CONTROL_OFF = 2
 CONTROL_ON = 3
@@ -63,10 +58,7 @@ class ReturnMixin(BaseControlModule):
     }
 
   def any_consumer_on(self):
-    for name in consumer_names:
-      if self.plc.read_by_name(name):
-        return True
-    return False
+    return any_consumer_on(self.plc)
 
   def _control_action(self, now):
     diagnostics = {}
