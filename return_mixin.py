@@ -127,6 +127,7 @@ return_mixin = ReturnMixin()
 return_mixin.load_parameters()
 
 def main(stop_requested):
+  return_mixin.enabled = True
   while not stop_requested():
     diagnostics = return_mixin.control_loop()
     for item in diagnostics.values():

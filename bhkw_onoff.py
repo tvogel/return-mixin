@@ -80,6 +80,7 @@ class BhkwOnOff(BaseControlModule):
 bhkw_onoff = BhkwOnOff()
 
 def main(stop_requested):
+  bhkw_onoff.enabled = True
   while not stop_requested():
     diagnostics = bhkw_onoff.control_loop()
     print(diagnostics.pop('timestamp'), end=' ')

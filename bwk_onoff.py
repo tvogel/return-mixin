@@ -108,6 +108,7 @@ class BwkOnOff(BaseControlModule):
 bwk_onoff = BwkOnOff()
 
 def main(stop_requested):
+  bwk_onoff.enabled = True
   while not stop_requested():
     diagnostics = bwk_onoff.control_loop()
     print(diagnostics.pop('timestamp'), end=' ')

@@ -59,6 +59,7 @@ class PkOnOff(BaseControlModule):
 pk_onoff = PkOnOff()
 
 def main(stop_requested):
+  pk_onoff.enabled = True
   while not stop_requested():
     diagnostics = pk_onoff.control_loop()
     print(diagnostics.pop("timestamp"), end=" ")

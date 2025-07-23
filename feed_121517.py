@@ -244,6 +244,7 @@ class Feed121517(BaseControlModule):
 feed_121517 = Feed121517()
 
 async def main(stop_requested):
+  feed_121517.enabled = True
   await feed_121517.setup_mqtt()
   while not stop_requested():
     diagnostics = feed_121517.control_loop()

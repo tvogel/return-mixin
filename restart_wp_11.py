@@ -65,6 +65,7 @@ def control_loop():
   return restart_wp_11.control_loop()
 
 def main(stop_requested):
+  restart_wp_11.enabled = True
   while not stop_requested():
     diagnostics = control_loop()
     print(diagnostics.pop('timestamp'), end=' ')
