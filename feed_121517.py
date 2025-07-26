@@ -12,13 +12,19 @@ from gmqtt import Client as MQTTClient
 from ema import EMA
 from base_control_module import BaseControlModule
 import uuid
+from dotenv import load_dotenv
 
 actual_return_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_RL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
 control_bws_name = 'PRG_HE.FB_Hk_Haus_12_17_15.FB_Pumpe.BWS.iStellung'
 
-MQTT_BROKER = 'test.mosquitto.org'
-MQTT_BROKER_PORT = 1883
+load_dotenv()
+
+MQTT_BROKER = 'mqtt.uferwerk.org'
+MQTT_BROKER_PORT = 8883
+MQTT_BROKER_SSL = True
+MQTT_USER = os.getenv('MQTT_USER')
+MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
 MQTT_TOPIC = 'metaview/metaview0'
 
 CONTROL_AUTO = 1
@@ -125,7 +131,8 @@ class Feed121517(BaseControlModule):
     self.mqtt_client = MQTTClient(self.mqtt_client_id)
     self.mqtt_client.on_connect = on_connect
     self.mqtt_client.on_message = on_message
-    await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, keepalive=60)
+    self.mqtt_client.set_auth_credentials(MQTT_USER, MQTT_PASSWORD)
+    await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, MQTT_BROKER_SSL, keepalive=60)
     self.mqtt_client.subscribe(MQTT_TOPIC)
 
   def actual_circulation_mqtt(self, payload, properties):
