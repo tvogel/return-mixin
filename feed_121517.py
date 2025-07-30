@@ -38,6 +38,7 @@ DEFAULT_PWM_PERIOD = 300.0  # seconds, user-configurable (default: 5 minutes)
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
+  client.subscribe(MQTT_TOPIC)
 
 def on_message(client, topic, payload, qos, properties):
   feed_121517.actual_circulation_mqtt(payload, properties)
@@ -106,6 +107,7 @@ class Feed121517(BaseControlModule):
     )
     self.return_set_point = 52 # degrees
     self.circulation_set_point = 56 # degrees
+    self.min_if_no_circulation = 0.75 * control_range[0]
     self.pwm_period = DEFAULT_PWM_PERIOD
     self.last_control = None
     self.last_update = None
@@ -132,8 +134,11 @@ class Feed121517(BaseControlModule):
     self.mqtt_client.on_connect = on_connect
     self.mqtt_client.on_message = on_message
     self.mqtt_client.set_auth_credentials(MQTT_USER, MQTT_PASSWORD)
-    await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, MQTT_BROKER_SSL, keepalive=60)
-    self.mqtt_client.subscribe(MQTT_TOPIC)
+    try:
+      await self.mqtt_client.connect(MQTT_BROKER, MQTT_BROKER_PORT, MQTT_BROKER_SSL, keepalive=60)
+    except Exception as e:
+      print(f"Failed to connect to MQTT broker: {e}")
+
 
   def actual_circulation_mqtt(self, payload, properties):
     if properties['retain']:
@@ -154,6 +159,7 @@ class Feed121517(BaseControlModule):
     self.return_pid.set_parameters(params.get('return_pid', self.return_pid.parameters()))
     self.circulation_pid.set_parameters(params.get('circulation_pid', self.circulation_pid.parameters()))
     self.pwm_period = params.get('pwm_period', self.pwm_period)
+    self.min_if_no_circulation = params.get('min_if_no_circulation', self.min_if_no_circulation)
 
   def _get_module_parameters(self):
     return {
@@ -161,7 +167,8 @@ class Feed121517(BaseControlModule):
       'circulation_set_point': self.circulation_set_point,
       'return_pid': self.return_pid.parameters(),
       'circulation_pid': self.circulation_pid.parameters(),
-      'pwm_period': self.pwm_period
+      'pwm_period': self.pwm_period,
+      'min_if_no_circulation': self.min_if_no_circulation
     }
 
   def _control_action(self, now):
@@ -193,12 +200,12 @@ class Feed121517(BaseControlModule):
     new_control_value = control_output * dt + self.last_control if dt else self.last_control
     new_control_value = bounded(new_control_value, *control_range)
     if not actual_circulation:
-      new_control_value = bounded(new_control_value, 0.5 * control_range[0], control_range[1])
+      new_control_value = bounded(new_control_value, self.min_if_no_circulation, control_range[1])
     self.last_control = new_control_value
 
     # PWM logic for (-20, 0)
     if new_control_value < 0:
-      duty_cycle = 0.9 * (new_control_value + 20) / 20 + 0.1 # (0.1, 1)
+      duty_cycle = 1.0 * (new_control_value + 20) / 20 + 0.0 # (0.0, 1)
       if self.pwm_state['cycle_start'] is None:
         self.pwm_state['cycle_start'] = now
       else:

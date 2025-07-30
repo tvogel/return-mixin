@@ -49,6 +49,11 @@
   <label for="pwm_period">PWM Period (minutes):</label>
   <input type="number" id="pwm_period" step="1" min="1" />
 
+  <label for="min_if_no_circulation"
+    >Minimum control if no circulation reading:</label
+  >
+  <input type="number" id="min_if_no_circulation" step="1" max="100" />
+
   <button type="submit">Set Parameters</button>
 </form>
 
@@ -151,6 +156,10 @@
       ).toFixed(2)
     );
     setFormValue("pwm_period", (data.pwm_period / 60).toFixed(2));
+    setFormValue(
+      "min_if_no_circulation",
+      data.min_if_no_circulation.toFixed(0)
+    );
     setFormValue("enabled", data.enabled, true);
   }
   async function updateParameters() {
@@ -174,6 +183,7 @@
         ),
       },
       pwm_period: getFormValue("pwm_period") * 60,
+      min_if_no_circulation: getFormValue("min_if_no_circulation"),
       enabled: getFormValue("enabled", true),
     };
     await apiPost("/api/{{ api_path }}/parameters", params);
