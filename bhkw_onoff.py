@@ -41,10 +41,10 @@ class BhkwOnOff(BaseControlModule):
   def _get_module_parameters(self):
     return self.buffer_tank.parameters()
 
-  def determine_control_value(self, current, solar_available, pk_available):
+  def determine_control_value(self, current, solar_available, pk_has_priority):
     #if not solar_available:
     #  return control.ON
-    if pk_available:
+    if pk_has_priority:
       return control.OFF
     if (buffer_tank_control := self.buffer_tank.get_control()) is not None:
       return buffer_tank_control
@@ -67,7 +67,7 @@ class BhkwOnOff(BaseControlModule):
 
     current_bhkw = control.invert(self.plc.read_by_name(control_bhkw_name))
     diagnostics['bhkw'] = control.control_str(current_bhkw)
-    new_bhkw = self.determine_control_value(current_bhkw, solar_available, pk.is_available())
+    new_bhkw = self.determine_control_value(current_bhkw, solar_available, pk.is_producing())
 
     if current_bhkw != new_bhkw:
       self.plc.write_by_name(control_bhkw_name, control.invert(new_bhkw))
