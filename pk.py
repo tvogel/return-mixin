@@ -33,7 +33,8 @@ class PK:
     return {
       'control': control.control_str(self.control),
       'ready': self.ready,
-      'at_gw_ok': self.at_gw_ok
+      'at_gw_ok': self.at_gw_ok,
+      'power': round(self.power, 2)
     } | ({ 'stoerung': True } if self.stoerung else {})
 
   def set_control(self, new_control):
