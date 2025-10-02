@@ -47,5 +47,9 @@ class PK:
     return self.ready and self.at_gw_ok and not self.stoerung and self.control != control.FAILURE
 
   def is_producing(self):
+    if not self.is_available():
+      return False
+    if self.control == control.OFF:
+      return False
     return self.power is not None and self.power > 0
 
