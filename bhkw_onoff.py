@@ -65,12 +65,12 @@ class BhkwOnOff(BaseControlModule):
     pk.read()
     diagnostics['pk'] = pk.diagnostics()
 
-    current_bhkw = control.invert(self.plc.read_by_name(control_bhkw_name))
+    current_bhkw = self.plc.read_by_name(control_bhkw_name)
     diagnostics['bhkw'] = control.control_str(current_bhkw)
     new_bhkw = self.determine_control_value(current_bhkw, solar_available, pk.is_producing())
 
     if current_bhkw != new_bhkw:
-      self.plc.write_by_name(control_bhkw_name, control.invert(new_bhkw))
+      self.plc.write_by_name(control_bhkw_name, new_bhkw)
       diagnostics['control_bhkw'] = control.control_str(new_bhkw)
       return diagnostics
 
