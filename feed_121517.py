@@ -11,6 +11,7 @@ import asyncio
 from gmqtt import Client as MQTTClient
 from ema import EMA
 from base_control_module import BaseControlModule
+import control
 import uuid
 from dotenv import load_dotenv
 
@@ -26,12 +27,6 @@ MQTT_BROKER_SSL = True
 MQTT_USER = os.getenv('MQTT_USER')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
 MQTT_TOPIC = 'metaview/metaview0'
-
-CONTROL_AUTO = 1
-CONTROL_OFF = 2
-CONTROL_ON = 3
-
-control_range = (-20, 100)  # Extended range
 
 # PWM parameters
 DEFAULT_PWM_PERIOD = 300.0  # seconds, user-configurable (default: 5 minutes)
@@ -107,7 +102,8 @@ class Feed121517(BaseControlModule):
     )
     self.return_set_point = 52 # degrees
     self.circulation_set_point = 56 # degrees
-    self.min_if_no_circulation = 0.75 * control_range[0]
+    self.control_range = (-20, 100)  # Extended range: < 0 for PWM control
+    self.min_if_no_circulation = 0.75 * self.control_range[0]
     self.pwm_period = DEFAULT_PWM_PERIOD
     self.last_control = None
     self.last_update = None
@@ -159,6 +155,7 @@ class Feed121517(BaseControlModule):
     self.return_pid.set_parameters(params.get('return_pid', self.return_pid.parameters()))
     self.circulation_pid.set_parameters(params.get('circulation_pid', self.circulation_pid.parameters()))
     self.pwm_period = params.get('pwm_period', self.pwm_period)
+    self.control_range[1] = params.get('max', self.control_range[1])
     self.min_if_no_circulation = params.get('min_if_no_circulation', self.min_if_no_circulation)
 
   def _get_module_parameters(self):
@@ -168,6 +165,7 @@ class Feed121517(BaseControlModule):
       'return_pid': self.return_pid.parameters(),
       'circulation_pid': self.circulation_pid.parameters(),
       'pwm_period': self.pwm_period,
+      'max': self.control_range[1],
       'min_if_no_circulation': self.min_if_no_circulation
     }
 
@@ -178,7 +176,7 @@ class Feed121517(BaseControlModule):
     plc = self.plc
 
     if self.last_control is None:
-      self.last_control = control_range[0] if plc.read_by_name(control_bws_name) == CONTROL_OFF else plc.read_by_name(control_value_name)
+      self.last_control = self.control_range[0] if plc.read_by_name(control_bws_name) == control.OFF else plc.read_by_name(control_value_name)
 
     actual_return_value = plc.read_by_name(actual_return_value_name)
     control_output_return = self.return_pid.update(self.return_set_point - actual_return_value, dt)
@@ -198,9 +196,9 @@ class Feed121517(BaseControlModule):
 
     current_control_value = plc.read_by_name(control_value_name)
     new_control_value = control_output * dt + self.last_control if dt else self.last_control
-    new_control_value = bounded(new_control_value, *control_range)
+    new_control_value = bounded(new_control_value, *self.control_range)
     if not actual_circulation:
-      new_control_value = bounded(new_control_value, self.min_if_no_circulation, control_range[1])
+      new_control_value = bounded(new_control_value, self.min_if_no_circulation, self.control_range[1])
     self.last_control = new_control_value
 
     # PWM logic for (-20, 0)
@@ -216,7 +214,7 @@ class Feed121517(BaseControlModule):
       on_time = duty_cycle * self.pwm_period
       pwm_on = elapsed < on_time
       plc.write_by_name(control_value_name, 0)
-      plc.write_by_name(control_bws_name, CONTROL_ON if pwm_on else CONTROL_OFF)
+      plc.write_by_name(control_bws_name, control.ON if pwm_on else control.OFF)
       diagnostics['pwm'] = {
         'duty_cycle': duty_cycle,
         'pwm_on': pwm_on,
@@ -225,7 +223,7 @@ class Feed121517(BaseControlModule):
         'period': self.pwm_period
       }
     else:
-      plc.write_by_name(control_bws_name, CONTROL_ON)
+      plc.write_by_name(control_bws_name, control.ON)
       plc.write_by_name(control_value_name, new_control_value)
 
     diagnostics |= {

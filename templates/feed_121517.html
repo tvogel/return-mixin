@@ -49,6 +49,9 @@
   <label for="pwm_period">PWM Period (minutes):</label>
   <input type="number" id="pwm_period" step="1" min="1" />
 
+  <label for="max">Maximum control value:</label>
+  <input type="number" id="max" step="1" min="0" max="100" />
+
   <label for="min_if_no_circulation"
     >Minimum control if no circulation reading:</label
   >
@@ -156,6 +159,7 @@
       ).toFixed(2)
     );
     setFormValue("pwm_period", (data.pwm_period / 60).toFixed(2));
+    setFormValue("max", data.max.toFixed(0));
     setFormValue(
       "min_if_no_circulation",
       data.min_if_no_circulation.toFixed(0)
@@ -183,6 +187,7 @@
         ),
       },
       pwm_period: getFormValue("pwm_period") * 60,
+      max: getFormValue("max"),
       min_if_no_circulation: getFormValue("min_if_no_circulation"),
       enabled: getFormValue("enabled", true),
     };
