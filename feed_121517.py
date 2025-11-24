@@ -102,7 +102,7 @@ class Feed121517(BaseControlModule):
     )
     self.return_set_point = 52 # degrees
     self.circulation_set_point = 56 # degrees
-    self.control_range = (-20, 100)  # Extended range: < 0 for PWM control
+    self.control_range = [-20, 100]  # Extended range: < 0 for PWM control
     self.min_if_no_circulation = 0.75 * self.control_range[0]
     self.pwm_period = DEFAULT_PWM_PERIOD
     self.last_control = None
