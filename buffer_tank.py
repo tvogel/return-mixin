@@ -4,7 +4,7 @@ from ema import EMA
 on1_value_name = 'PRG_HE.FB_Speicher_1_Temp_oben.fOut'
 on2_value_name = 'PRG_HE.FB_Speicher_2_Temp_oben.fOut'
 off1_value_name = 'PRG_HE.FB_Speicher_1_Temp_unten.fOut'
-off2_value_name = 'PRG_WV.FB_BHKW_RL_Temp.fOut'
+off2_value_name = 'PRG_HE.FB_Speicher_2_Temp_unten.fOut'
 
 class BufferTank:
   def __init__(self, plc, on_threshold, off_threshold):
