@@ -19,6 +19,8 @@
   <input type="number" id="on_threshold" step="0.00001" />
   <label for="off_threshold">Off Threshold:</label>
   <input type="number" id="off_threshold" step="0.00001" />
+  <label for="heat_after_bwk_minutes">Heat After BWK (minutes):</label>
+  <input type="number" id="heat_after_bwk_minutes" step="0.00001" />
   {% elif controller_name == 'bhkw-onoff' %}
   <label for="on_threshold">On Threshold:</label>
   <input type="number" id="on_threshold" step="0.00001" />
@@ -64,6 +66,7 @@
     {% elif controller_name == 'pk-onoff' %}
       setFormValue('on_threshold', data.on_threshold);
       setFormValue('off_threshold', data.off_threshold);
+      setFormValue('heat_after_bwk_minutes', (data.heat_after_bwk_seconds / 60).toFixed(2));
     {% elif controller_name == 'bhkw-onoff' %}
       setFormValue('on_threshold', data.on_threshold);
       setFormValue('off_threshold', data.off_threshold);
@@ -82,6 +85,7 @@
     {% elif controller_name == 'pk-onoff' %}
       params.on_threshold = getFormValue('on_threshold');
       params.off_threshold = getFormValue('off_threshold');
+      params.heat_after_bwk_seconds = getFormValue('heat_after_bwk_minutes') * 60;
     {% elif controller_name == 'bhkw-onoff' %}
       params.on_threshold = getFormValue('on_threshold');
       params.off_threshold = getFormValue('off_threshold');

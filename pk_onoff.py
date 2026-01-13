@@ -4,10 +4,11 @@
 import pyads
 import time
 import control
+import datetime
 from pk import PK
+from bwk import BWK
 from buffer_tank import BufferTank
 from base_control_module import BaseControlModule
-
 
 class PkOnOff(BaseControlModule):
   def __init__(self):
@@ -18,12 +19,17 @@ class PkOnOff(BaseControlModule):
     )
     self.buffer_tank = BufferTank(self.plc, 64, 58)
     self.last_update_dt = None
+    self.heat_after_bwk_seconds = 300
+    self.heat_after_bwk_dt = None
 
   def _set_module_parameters(self, params):
     self.buffer_tank.set_parameters(params)
+    self.heat_after_bwk_seconds = params.get("heat_after_bwk_seconds", self.heat_after_bwk_seconds)
 
   def _get_module_parameters(self):
-    return self.buffer_tank.parameters()
+    params = self.buffer_tank.parameters()
+    params["heat_after_bwk_seconds"] = self.heat_after_bwk_seconds
+    return params
 
   def _control_action(self, now):
     diagnostics = {}
@@ -36,16 +42,30 @@ class PkOnOff(BaseControlModule):
 
     pk = PK(self.plc)
     pk.read()
+    bwk = BWK(self.plc)
+    bwk.read()
 
     self.buffer_tank.update(dt)
 
     diagnostics |= self.buffer_tank.diagnostics()
     diagnostics["pk"] = pk.diagnostics()
+    diagnostics["bwk"] = bwk.diagnostics()
+
+    if bwk.is_on():
+      self.heat_after_bwk_dt = now + datetime.timedelta(seconds=self.heat_after_bwk_seconds)
+    elif self.heat_after_bwk_dt is not None and now >= self.heat_after_bwk_dt:
+      diagnostics["heat_after_bwk_dt"] = "expired"
+      self.heat_after_bwk_dt = None
+
+    if self.heat_after_bwk_dt is not None:
+      diagnostics["heat_after_bwk_dt"] = self.heat_after_bwk_dt.replace(microsecond=0).isoformat()
 
     new_control_pk = pk.control
 
     if not pk.is_available():
       new_control_pk = control.OFF
+    elif self.heat_after_bwk_dt is not None:
+      new_control_pk = control.ON
     elif (buffer_tank_control := self.buffer_tank.get_control()) is not None:
       new_control_pk = buffer_tank_control
 
