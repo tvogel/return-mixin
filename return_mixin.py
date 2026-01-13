@@ -3,6 +3,7 @@
 
 import pyads
 import time
+import control
 from base_control_module import BaseControlModule
 from ema import EMA
 from distribution import any_consumer_on
@@ -10,9 +11,6 @@ from distribution import any_consumer_on
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 control_value_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.FB_BWS_Sollwert.FB_PmSw.fWert'
 control_onoff_name = 'PRG_HE.FB_Zusatzspeicher.FB_Speicherladeset_Pumpe.BWS.iStellung'
-
-CONTROL_OFF = 2
-CONTROL_ON = 3
 
 def fd1(last, value, dt):
   if last is None or dt is None:
@@ -64,7 +62,7 @@ class ReturnMixin(BaseControlModule):
     diagnostics = {}
     if self.last_control is None:
       self.last_control = self.plc.read_by_name(control_value_name) \
-        if self.plc.read_by_name(control_onoff_name) == CONTROL_ON \
+        if self.plc.read_by_name(control_onoff_name) == control.ON \
         else self.control_range[0]
 
     dt = (now - self.last_update).total_seconds() if self.last_update else None
@@ -72,7 +70,7 @@ class ReturnMixin(BaseControlModule):
     diagnostics['dt'] = dt
 
     if not self.any_consumer_on():
-      self.plc.write_by_name(control_onoff_name, CONTROL_OFF)
+      self.plc.write_by_name(control_onoff_name, control.OFF)
       self.plc.write_by_name(control_value_name, 0)
       diagnostics['no_consumers'] = True
       diagnostics['new_control_value'] = self.control_range[0]
@@ -106,10 +104,10 @@ class ReturnMixin(BaseControlModule):
     })
 
     if new_control_value <= self.control_range[0] / 2:
-      self.plc.write_by_name(control_onoff_name, CONTROL_OFF)
+      self.plc.write_by_name(control_onoff_name, control.OFF)
       self.plc.write_by_name(control_value_name, 0)
     else:
-      self.plc.write_by_name(control_onoff_name, CONTROL_ON)
+      self.plc.write_by_name(control_onoff_name, control.ON)
       self.plc.write_by_name(control_value_name, max(new_control_value, 0))
     self.last_control = new_control_value
 
