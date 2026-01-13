@@ -5,17 +5,12 @@ import pyads
 import datetime
 import time
 import control
+from bwk import BWK
 from pk import PK
 from base_control_module import BaseControlModule
 from distribution import any_consumer_on
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
-control_bwk_name = 'PRG_WV.FB_Brenner.BWS.iStellung'
-
-# Lock for parameters
-
-plc = pyads.Connection('192.168.35.21.1.1', pyads.PORT_TC3PLC1)
-plc.open()
 
 class EMA:
   def __init__(self, decay_factor):
@@ -57,8 +52,9 @@ class BwkOnOff(BaseControlModule):
     }
 
   def _control_action(self, now):
-    actual_value = plc.read_by_name(actual_value_name)
-    current_control_bwk = plc.read_by_name(control_bwk_name)
+    actual_value = self.plc.read_by_name(actual_value_name)
+    bwk = BWK(self.plc)
+    bwk.read()
     pk = PK(self.plc)
     pk.read()
     consumption = any_consumer_on(self.plc)
@@ -70,26 +66,26 @@ class BwkOnOff(BaseControlModule):
     diagnostics = {
       'value': round(actual_value, 2),
       'value_ema': round(self.value_ema.last, 2),
-      'bwk': control.control_str(current_control_bwk),
+      'bwk': bwk.diagnostics(),
       'consumption': consumption,
     }
     if self.auto_off_dt:
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
     if consumption and self.value_ema.last < self.threshold:
-      plc.write_by_name(control_bwk_name, control.ON)
+      bwk.set_control(control.ON)
       diagnostics['control_bwk'] = 'on'
       self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
       return diagnostics
 
-    if current_control_bwk == control.OFF:
+    if bwk.control == control.OFF:
       if self.auto_off_dt is not None:
         self.auto_off_dt = None
         diagnostics['auto_off'] = 'superceded'
         return diagnostics
 
-    if current_control_bwk != control.OFF:
+    if bwk.control != control.OFF:
       if self.auto_off_dt is None:
         self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
         diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
@@ -101,7 +97,7 @@ class BwkOnOff(BaseControlModule):
         # if not pk.is_available():
         #   diagnostics['control_bwk'] = 'ignored (PK not available)'
         #   return diagnostics
-        plc.write_by_name(control_bwk_name, control.OFF)
+        bwk.set_control(control.OFF)
         diagnostics['control_bwk'] = 'off'
         return diagnostics
 
