@@ -65,7 +65,8 @@ class BwkOnOff(BaseControlModule):
 
     dt = (now - self.last_update_dt).total_seconds() if self.last_update_dt else None
     self.last_update_dt = now
-    self.value_ema.update(actual_value, dt)
+    if consumption or dt is None:
+      self.value_ema.update(actual_value, dt)
     diagnostics = {
       'value': round(actual_value, 2),
       'value_ema': round(self.value_ema.last, 2),
@@ -75,13 +76,12 @@ class BwkOnOff(BaseControlModule):
     if self.auto_off_dt:
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
-    if current_control_bwk != control.ON:
-      if consumption and self.value_ema.last < self.threshold:
-        plc.write_by_name(control_bwk_name, control.AUTO)
-        diagnostics['control_bwk'] = 'auto'
-        self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
-        diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
-        return diagnostics
+    if consumption and self.value_ema.last < self.threshold:
+      plc.write_by_name(control_bwk_name, control.ON)
+      diagnostics['control_bwk'] = 'on'
+      self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
+      diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
+      return diagnostics
 
     if current_control_bwk == control.OFF:
       if self.auto_off_dt is not None:
@@ -89,7 +89,7 @@ class BwkOnOff(BaseControlModule):
         diagnostics['auto_off'] = 'superceded'
         return diagnostics
 
-    if current_control_bwk == control.AUTO:
+    if current_control_bwk != control.OFF:
       if self.auto_off_dt is None:
         self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
         diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
