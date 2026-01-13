@@ -51,7 +51,7 @@ class PkOnOff(BaseControlModule):
     diagnostics["pk"] = pk.diagnostics()
     diagnostics["bwk"] = bwk.diagnostics()
 
-    if bwk.is_on():
+    if bwk.control == control.ON:
       self.heat_after_bwk_dt = now + datetime.timedelta(seconds=self.heat_after_bwk_seconds)
     elif self.heat_after_bwk_dt is not None and now >= self.heat_after_bwk_dt:
       diagnostics["heat_after_bwk_dt"] = "expired"
