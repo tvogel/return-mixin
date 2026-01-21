@@ -9,6 +9,7 @@ from bwk import BWK
 from pk import PK
 from base_control_module import BaseControlModule
 from distribution import any_consumer_on
+from buffer_tank import BufferTank
 
 actual_value_name = 'PRG_HE.FB_Haus_28_42_12_17_15_VL_Temp.fOut'
 
@@ -32,6 +33,7 @@ class BwkOnOff(BaseControlModule):
       plc_ams_port=pyads.PORT_TC3PLC1,
       param_filename='bwk_onoff_params.json'
     )
+    self.buffer_tank = BufferTank(self.plc, 64, 58)
     self.threshold = 60 # degrees
     self.auto_duration_minutes = 10
 
@@ -43,12 +45,16 @@ class BwkOnOff(BaseControlModule):
     self.value_ema.decay_factor = params.get('decay_factor', self.value_ema.decay_factor)
     self.threshold = params.get('threshold', self.threshold)
     self.auto_duration_minutes = params.get('auto_duration_minutes', self.auto_duration_minutes)
+    self.buffer_tank.set_parameters(params.get('buffer_tank', self.buffer_tank.parameters()))
+    self.buffer_tank.on_value_ema.decay_factor = self.value_ema.decay_factor
+    self.buffer_tank.off_value_ema.decay_factor = self.value_ema.decay_factor
 
   def _get_module_parameters(self):
     return {
       'decay_factor': self.value_ema.decay_factor,
       'threshold': self.threshold,
-      'auto_duration_minutes': self.auto_duration_minutes
+      'auto_duration_minutes': self.auto_duration_minutes,
+      'buffer_tank': self.buffer_tank.parameters()
     }
 
   def _control_action(self, now):
@@ -57,18 +63,42 @@ class BwkOnOff(BaseControlModule):
     bwk.read()
     pk = PK(self.plc)
     pk.read()
-    consumption = any_consumer_on(self.plc)
 
     dt = (now - self.last_update_dt).total_seconds() if self.last_update_dt else None
     self.last_update_dt = now
+
+    if not pk.is_available():
+      # solo mode
+      self.buffer_tank.update(dt)
+
+      diagnostics = {
+        'mode': 'solo',
+        'bwk': bwk.diagnostics(),
+        'buffer_tank': self.buffer_tank.diagnostics()
+      }
+
+      diagnostics['mode'] = 'solo'
+      if (control_bwk := self.buffer_tank.get_control()) is not None:
+        diagnostics['control_bwk'] = control.control_str(control_bwk)
+        bwk.set_control(control_bwk)
+        return diagnostics
+      diagnostics['idle'] = True
+      return diagnostics
+
+    # top-up mode
+    consumption = any_consumer_on(self.plc)
+
     if consumption or dt is None:
       self.value_ema.update(actual_value, dt)
+
     diagnostics = {
+      'mode': 'top-up',
       'value': round(actual_value, 2),
       'value_ema': round(self.value_ema.last, 2),
       'bwk': bwk.diagnostics(),
       'consumption': consumption,
     }
+
     if self.auto_off_dt:
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
