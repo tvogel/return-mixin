@@ -18,6 +18,10 @@
   <input type="number" id="solo_on_threshold" step="0.00001" />
   <label for="solo_off_threshold">Off Threshold (solo mode):</label>
   <input type="number" id="solo_off_threshold" step="0.00001" />
+  <label for="solo_half_life_minutes"
+    >Half-Life for exponential mean average (solo mode, minutes):</label
+  >
+  <input type="number" id="solo_half_life_minutes" step="0.00001" />
   {% elif controller_name == 'pk-onoff' %}
   <label for="on_threshold">On Threshold:</label>
   <input type="number" id="on_threshold" step="0.00001" />
@@ -69,6 +73,7 @@
       setFormValue('auto_duration_minutes', data.auto_duration_minutes);
       setFormValue('solo_on_threshold', data.buffer_tank.on_threshold);
       setFormValue('solo_off_threshold', data.buffer_tank.off_threshold);
+      setFormValue('solo_half_life_minutes', decayFactorToHalfLife(data.buffer_tank.decay_factor).toFixed(2));
     {% elif controller_name == 'pk-onoff' %}
       setFormValue('on_threshold', data.on_threshold);
       setFormValue('off_threshold', data.off_threshold);
@@ -90,7 +95,8 @@
       params.auto_duration_minutes = getFormValue('auto_duration_minutes');
       params.buffer_tank = {
         on_threshold: getFormValue('solo_on_threshold'),
-        off_threshold: getFormValue('solo_off_threshold')
+        off_threshold: getFormValue('solo_off_threshold'),
+        decay_factor: halfLifeToDecayFactor(getFormValue('solo_half_life_minutes'))
       };
     {% elif controller_name == 'pk-onoff' %}
       params.on_threshold = getFormValue('on_threshold');

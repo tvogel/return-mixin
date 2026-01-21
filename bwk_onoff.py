@@ -46,8 +46,6 @@ class BwkOnOff(BaseControlModule):
     self.threshold = params.get('threshold', self.threshold)
     self.auto_duration_minutes = params.get('auto_duration_minutes', self.auto_duration_minutes)
     self.buffer_tank.set_parameters(params.get('buffer_tank', self.buffer_tank.parameters()))
-    self.buffer_tank.on_value_ema.decay_factor = self.value_ema.decay_factor
-    self.buffer_tank.off_value_ema.decay_factor = self.value_ema.decay_factor
 
   def _get_module_parameters(self):
     return {
@@ -77,8 +75,7 @@ class BwkOnOff(BaseControlModule):
         'buffer_tank': self.buffer_tank.diagnostics()
       }
 
-      diagnostics['mode'] = 'solo'
-      if (control_bwk := self.buffer_tank.get_control()) is not None:
+      if (control_bwk := self.buffer_tank.get_control()) is not None and control_bwk != bwk.control:
         diagnostics['control_bwk'] = control.control_str(control_bwk)
         bwk.set_control(control_bwk)
         return diagnostics
