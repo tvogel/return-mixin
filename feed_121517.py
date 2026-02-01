@@ -155,6 +155,7 @@ class Feed121517(BaseControlModule):
     self.return_pid.set_parameters(params.get('return_pid', self.return_pid.parameters()))
     self.circulation_pid.set_parameters(params.get('circulation_pid', self.circulation_pid.parameters()))
     self.pwm_period = params.get('pwm_period', self.pwm_period)
+    self.control_range[0] = params.get('min', self.control_range[0])
     self.control_range[1] = params.get('max', self.control_range[1])
     self.min_if_no_circulation = params.get('min_if_no_circulation', self.min_if_no_circulation)
 
@@ -165,6 +166,7 @@ class Feed121517(BaseControlModule):
       'return_pid': self.return_pid.parameters(),
       'circulation_pid': self.circulation_pid.parameters(),
       'pwm_period': self.pwm_period,
+      'min': self.control_range[0],
       'max': self.control_range[1],
       'min_if_no_circulation': self.min_if_no_circulation
     }
