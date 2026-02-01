@@ -6,7 +6,6 @@ from typing import Dict, List, Callable, Any, Optional
 import threading
 import time
 import asyncio
-import datetime
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
@@ -16,6 +15,7 @@ from bwk_onoff import bwk_onoff
 from pk_onoff import pk_onoff
 from bhkw_onoff import bhkw_onoff
 from feed_121517 import feed_121517
+from tww_11 import tww_11
 import restart_wp_11
 
 @dataclass
@@ -143,6 +143,13 @@ CONTROLLER_CONFIGS = [
     max_diagnostics=1000,
     template="restart_wp_11.html"
   ),
+  ControllerConfig(
+    name="tww-11",
+    title="TWW 11 Control",
+    module=tww_11,
+    max_diagnostics=1000,
+    template="tww_11.html"
+  )
 ]
 
 # Special handling for feed_121517

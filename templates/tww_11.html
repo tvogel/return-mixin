@@ -1,0 +1,143 @@
+{% extends "base.html" %} {% block content %}
+<h2>Parameters</h2>
+<form class="form-grid" onsubmit="event.preventDefault(); updateParameters();">
+  <label for="enabled">Enable Control:</label>
+  <input type="checkbox" id="enabled" />
+
+  <label for="circulation_set_point">Circulation Set Point:</label>
+  <input type="number" id="circulation_set_point" step="0.00001" />
+
+  <label for="Kp">Kp:</label>
+  <input type="number" id="Kp" step="0.00001" />
+
+  <label for="Ki">Ki:</label>
+  <input type="number" id="Ki" step="0.00001" />
+
+  <label for="Kd">Kd:</label>
+  <input type="number" id="Kd" step="0.00001" />
+
+  <label for="integration_half_life_minutes"
+    >Integration Half-Life (minutes):</label
+  >
+  <input
+    type="number"
+    id="integration_half_life_minutes"
+    step="0.00001"
+  />
+
+  <label for="pwm_period">PWM Period (minutes):</label>
+  <input type="number" id="pwm_period" step="1" min="1" />
+
+  <label for="min">Minimum control value [-20:100]:</label>
+  <input type="number" id="min" step="1" min="-20" max="100" />
+
+  <label for="max">Maximum control value:</label>
+  <input type="number" id="max" step="1" min="0" max="100" />
+
+  <button type="submit">Set Parameters</button>
+</form>
+
+<h2>Diagnostics</h2>
+<table id="diagnostics"></table>
+{% endblock %} {% block page_init %}
+<script>
+  async function fetchDiagnostics() {
+    const data = await apiGet("/api/{{ api_path }}/diagnostics");
+    const table = document.getElementById("diagnostics");
+    table.innerHTML = `
+<tr>
+  <th>Timestamp</th>
+  <th colspan="8" class="thick-border">PID Values</th>
+  <th colspan="3" class="thick-border">Control</th>
+</tr>
+<tr>
+  <th></th>
+  <th class="thick-border">Actual</th>
+  <th>Error</th>
+  <th>I_error</th>
+  <th>D_error</th>
+  <th>P</th>
+  <th>I</th>
+  <th>D</th>
+  <th>Control</th>
+  <th class="thick-border">Output</th>
+  <th>New Value</th>
+  <th>Pump</th>
+</tr>
+`;
+    const keys = [
+      "timestamp",
+      "circulation.actual",
+      "circulation.error",
+      "circulation.I_error",
+      "circulation.D_error",
+      "circulation.P",
+      "circulation.I",
+      "circulation.D",
+      "circulation.control",
+      "control_output",
+      "new_control_value",
+      "pump",
+    ];
+    const digits = { "circulation.D_error": 4 };
+    data.reverse().forEach((row) => {
+      const tr = document.createElement("tr");
+      keys.forEach((key) => {
+        const value = key.split(".").reduce((o, k) => (o || {})[k], row);
+        const td = createTableCell(formatValue(value, digits[key] ?? 2));
+        if (
+          key === "circulation.actual" ||
+          key === "control_output"
+        ) {
+          td.classList.add("thick-border");
+        }
+        tr.append(td);
+      });
+      table.append(tr);
+    });
+  }
+  async function fetchParameters() {
+    const data = await apiGet("/api/{{ api_path }}/parameters");
+    setFormValue(
+      "circulation_set_point",
+      data.circulation_set_point.toFixed(2)
+    );
+    setFormValue("circulation_Kp", data.circulation_pid.Kp.toFixed(4));
+    setFormValue("circulation_Ki", data.circulation_pid.Ki.toFixed(4));
+    setFormValue("circulation_Kd", data.circulation_pid.Kd.toFixed(4));
+    setFormValue(
+      "circulation_integration_half_life_minutes",
+      decayFactorToHalfLife(
+        data.circulation_pid.integration_decay_factor
+      ).toFixed(2)
+    );
+    setFormValue("pwm_period", (data.pump.pwm.period / 60).toFixed(2));
+    setFormValue("min", data.pump.min.toFixed(0));
+    setFormValue("max", data.pump.max.toFixed(0));
+    setFormValue("enabled", data.enabled, true);
+  }
+  async function updateParameters() {
+    const params = {
+      circulation_set_point: getFormValue("circulation_set_point"),
+      circulation_pid: {
+        Kp: getFormValue("Kp"),
+        Ki: getFormValue("Ki"),
+        Kd: getFormValue("Kd"),
+        integration_decay_factor: halfLifeToDecayFactor(
+          getFormValue("integration_half_life_minutes")
+        ),
+      },
+      pump: {
+        min: getFormValue("max"),
+        max: getFormValue("max"),
+        pwm: {
+          period: getFormValue("pwm_period") * 60
+        }
+      },
+      enabled: getFormValue("enabled", true),
+    };
+    await apiPost("/api/{{ api_path }}/parameters", params);
+    fetchParameters();
+  }
+</script>
+{% endblock %}
