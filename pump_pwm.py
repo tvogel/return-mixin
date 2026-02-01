@@ -22,7 +22,7 @@ class PumpPWM:
   def set_parameters(self, params):
     self.control_range[0] = params.get('min', self.control_range[0])
     self.control_range[1] = params.get('max', self.control_range[1])
-    self.pwm.set_parameters(params.get('pwm'), self.pwm.parameters())
+    self.pwm.set_parameters(params.get('pwm', self.pwm.parameters()))
 
   def set_control(self, control):
     self.control = control

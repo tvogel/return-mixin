@@ -161,9 +161,9 @@
         data.circulation_pid.integration_decay_factor
       ).toFixed(2)
     );
-    setFormValue("pwm_period", (data.pwm_period / 60).toFixed(2));
+    setFormValue("pwm_period", (data.pump.pwm.period / 60).toFixed(2));
     setFormValue("min", data.min.toFixed(0));
-    setFormValue("max", data.max.toFixed(0));
+    setFormValue("max", data.pump.max.toFixed(0));
     setFormValue(
       "min_if_no_circulation",
       data.min_if_no_circulation.toFixed(0)
@@ -190,9 +190,13 @@
           getFormValue("circulation_integration_half_life_minutes")
         ),
       },
-      pwm_period: getFormValue("pwm_period") * 60,
+      pump: {
+        max: getFormValue("max"),
+        pwm: {
+          period: getFormValue("pwm_period") * 60
+        }
+      },
       min: getFormValue("min"),
-      max: getFormValue("max"),
       min_if_no_circulation: getFormValue("min_if_no_circulation"),
       enabled: getFormValue("enabled", true),
     };
