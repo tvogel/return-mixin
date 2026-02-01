@@ -102,11 +102,11 @@
       "circulation_set_point",
       data.circulation_set_point.toFixed(2)
     );
-    setFormValue("circulation_Kp", data.circulation_pid.Kp.toFixed(4));
-    setFormValue("circulation_Ki", data.circulation_pid.Ki.toFixed(4));
-    setFormValue("circulation_Kd", data.circulation_pid.Kd.toFixed(4));
+    setFormValue("Kp", data.circulation_pid.Kp.toFixed(4));
+    setFormValue("Ki", data.circulation_pid.Ki.toFixed(4));
+    setFormValue("Kd", data.circulation_pid.Kd.toFixed(4));
     setFormValue(
-      "circulation_integration_half_life_minutes",
+      "integration_half_life_minutes",
       decayFactorToHalfLife(
         data.circulation_pid.integration_decay_factor
       ).toFixed(2)
