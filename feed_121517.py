@@ -132,7 +132,9 @@ class Feed121517(BaseControlModule):
     control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
 
     self.pump_pwm.control_range[0] = self.min if actual_circulation else self.min_if_no_circulation
-    diagnostics |= self.pump_pwm.update(now, control_output * dt if dt else 0)
+    diagnostics |= {
+      'pump': self.pump_pwm.update(now, control_output * dt if dt else 0)
+    }
 
     diagnostics |= {
       'dt': dt,

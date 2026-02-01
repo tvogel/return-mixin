@@ -75,7 +75,7 @@
   <th>Timestamp</th>
   <th colspan="8" class="thick-border">Return Values</th>
   <th colspan="8" class="thick-border">Circulation Values</th>
-  <th colspan="2" class="thick-border">Control</th>
+  <th colspan="3" class="thick-border">Control</th>
 </tr>
 <tr>
   <th></th>
@@ -97,6 +97,7 @@
   <th>Control</th>
   <th class="thick-border">Output</th>
   <th>New Value</th>
+  <th>Pump</th>
 </tr>
 `;
     const keys = [
@@ -119,6 +120,7 @@
       "circulation.control",
       "control_output",
       "new_control_value",
+      "pump",
     ];
     const digits = { "return.D_error": 4, "circulation.D_error": 4 };
     data.reverse().forEach((row) => {

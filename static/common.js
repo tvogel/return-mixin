@@ -37,7 +37,10 @@ function createTableCell(content, className) {
 }
 
 function formatValue(value, digits = 2) {
-  return (typeof value === "number" ? value.toFixed(digits) : value) ?? "-";
+  if (value == null) return "-";
+  if (typeof value === "number") return value.toFixed(digits);
+  if (typeof value === "object") return JSON.stringify(value);
+  return value;
 }
 
 // Make formatValue available globally
