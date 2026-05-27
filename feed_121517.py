@@ -25,8 +25,7 @@ MQTT_BROKER_SSL = True
 MQTT_USER = os.getenv('MQTT_USER')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
 MQTT_TOPIC_15_17 = 'metaview/metaview0'
-MQTT_TOPIC_12 = 'shellyplusuni-a0dd6c297f24/events/rpc'
-MQTT_TEMPERATURE_ID_12 = '101'
+MQTT_TOPIC_12 = 'shellyplusuni-a0dd6c297f24/status/temperature:101'
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
@@ -88,9 +87,7 @@ class Feed121517(BaseControlModule):
           "timestamp": datetime.datetime.now()
         }
       elif topic == MQTT_TOPIC_12:
-        if value := value['params'] \
-            .get('temperature:' + MQTT_TEMPERATURE_ID_12, {}) \
-            .get('tC'):
+        if value := value.get('tC'):
           self.actual_circulation_12 = {
             "value": value,
             "timestamp": datetime.datetime.now()
@@ -132,7 +129,12 @@ class Feed121517(BaseControlModule):
     control_output_return = self.return_pid.update(self.return_set_point - actual_return_value, dt)
 
     # Circulations from MQTT
-    for actual_circulation_attr in ['actual_circulation_15_17', 'actual_circulation_12']:
+
+    # Time out for 15/17, 12 has rare updates
+    for actual_circulation_attr in [
+        'actual_circulation_15_17'
+        #, 'actual_circulation_12'
+      ]:
       actual_circulation = getattr(self, actual_circulation_attr)
       if actual_circulation and actual_circulation['timestamp']:
         if (now - actual_circulation['timestamp']).total_seconds() > 60:
