@@ -26,6 +26,8 @@ MQTT_USER = os.getenv('MQTT_USER')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
 MQTT_TOPIC_15_17 = 'metaview/metaview0'
 MQTT_TOPIC_12 = 'shellyplusuni-a0dd6c297f24/status/temperature:101'
+MQTT_COMMAND_TOPIC_12 = 'shellyplusuni-a0dd6c297f24/command'
+MQTT_STATUS_UPDATE_COMMAND = 'status_update'
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
@@ -130,10 +132,14 @@ class Feed121517(BaseControlModule):
 
     # Circulations from MQTT
 
-    # Time out for 15/17, 12 has rare updates
+    # request H12 update every 30 seconds
+    if self.mqtt_client.is_connected:
+      self.mqtt_client.publish(MQTT_COMMAND_TOPIC_12, MQTT_STATUS_UPDATE_COMMAND, qos=1)
+
+    # Time out for old updates
     for actual_circulation_attr in [
-        'actual_circulation_15_17'
-        #, 'actual_circulation_12'
+        'actual_circulation_15_17',
+        'actual_circulation_12'
       ]:
       actual_circulation = getattr(self, actual_circulation_attr)
       if actual_circulation and actual_circulation['timestamp']:
