@@ -139,7 +139,7 @@ class Feed121517(BaseControlModule):
           print(f"{actual_circulation_attr} is too old, skipping")
           setattr(self, actual_circulation_attr, None)
 
-    actual_circulations = (x['value'] for x in (self.actual_circulation_15_17, self.actual_circulation_12) if x is not None)
+    actual_circulations = [x['value'] for x in (self.actual_circulation_15_17, self.actual_circulation_12) if x is not None]
 
     control_output_circulation = None
     if actual_circulations:
