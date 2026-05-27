@@ -87,7 +87,8 @@
   <th>I</th>
   <th>D</th>
   <th>Control</th>
-  <th class="thick-border">Actual</th>
+  <th class="thick-border">Actual 12</th>
+  <th class="thick-border">Actual 15/17</th>
   <th>Error</th>
   <th>I_error</th>
   <th>D_error</th>
@@ -110,7 +111,8 @@
       "return.I",
       "return.D",
       "return.control",
-      "circulation.actual",
+      "circulation.actual_12",
+      "circulation.actual_15_17",
       "circulation.error",
       "circulation.I_error",
       "circulation.D_error",
@@ -130,7 +132,8 @@
         const td = createTableCell(formatValue(value, digits[key] ?? 2));
         if (
           key === "return.actual" ||
-          key === "circulation.actual" ||
+          key === "circulation.actual_12" ||
+          key === "circulation.actual_15_17" ||
           key === "control_output"
         ) {
           td.classList.add("thick-border");

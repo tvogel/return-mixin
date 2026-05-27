@@ -24,14 +24,17 @@ MQTT_BROKER_PORT = 8883
 MQTT_BROKER_SSL = True
 MQTT_USER = os.getenv('MQTT_USER')
 MQTT_PASSWORD = os.getenv('MQTT_PASSWORD')
-MQTT_TOPIC = 'metaview/metaview0'
+MQTT_TOPIC_15_17 = 'metaview/metaview0'
+MQTT_TOPIC_12 = 'shellyplusuni-a0dd6c297f24/events/rpc'
+MQTT_TEMPERATURE_ID_12 = '101'
 
 def on_connect(client, flags, rc, properties):
   print("Connected to MQTT broker")
-  client.subscribe(MQTT_TOPIC)
+  client.subscribe(MQTT_TOPIC_15_17)
+  client.subscribe(MQTT_TOPIC_12)
 
 def on_message(client, topic, payload, qos, properties):
-  feed_121517.actual_circulation_mqtt(payload, properties)
+  feed_121517.actual_circulation_mqtt(topic, payload, properties)
 
 class Feed121517(BaseControlModule):
   # Instance variable for MQTT callback
@@ -59,7 +62,8 @@ class Feed121517(BaseControlModule):
       Kd = 0 / 60,
       integration_decay_factor = 0.5 ** (1/60)
     )
-    self.actual_circulation = None
+    self.actual_circulation_15_17 = None
+    self.actual_circulation_12 = None
     self.mqtt_client_id = f"feed_121517_{uuid.uuid4()}"
 
   async def setup_mqtt(self):
@@ -118,20 +122,23 @@ class Feed121517(BaseControlModule):
     actual_return_value = plc.read_by_name(actual_return_value_name)
     control_output_return = self.return_pid.update(self.return_set_point - actual_return_value, dt)
 
-    # Circulation from MQTT
-    actual_circulation = self.actual_circulation
+    # Circulations from MQTT
+    for actual_circulation_attr in ['actual_circulation_15_17', 'actual_circulation_12']:
+      actual_circulation = getattr(self, actual_circulation_attr)
+      if actual_circulation and actual_circulation['timestamp']:
+        if (now - actual_circulation['timestamp']).total_seconds() > 60:
+          print(f"{actual_circulation_attr} is too old, skipping")
+          setattr(self, actual_circulation_attr, None)
+
+    actual_circulations = (x['value'] for x in (self.actual_circulation_15_17, self.actual_circulation_12) if x is not None)
+
     control_output_circulation = None
-    if actual_circulation and actual_circulation['timestamp']:
-      if (now - actual_circulation['timestamp']).total_seconds() > 60:
-        print("Actual circulation data is too old, skipping circulation control")
-        self.actual_circulation = None
-        actual_circulation = None
-    if actual_circulation:
-      control_output_circulation = self.circulation_pid.update(self.circulation_set_point - actual_circulation['value'], dt)
+    if actual_circulations:
+      control_output_circulation = self.circulation_pid.update(self.circulation_set_point - min(actual_circulations), dt)
 
     control_output = max((x for x in (control_output_return, control_output_circulation) if x is not None), default=0)
 
-    self.pump_pwm.control_range[0] = self.min if actual_circulation else self.min_if_no_circulation
+    self.pump_pwm.control_range[0] = self.min if actual_circulations else self.min_if_no_circulation
     diagnostics |= {
       'pump': self.pump_pwm.update(now, control_output * dt if dt else 0)
     }
@@ -149,7 +156,8 @@ class Feed121517(BaseControlModule):
         'control': control_output_return,
       },
       'circulation': {
-        'actual': actual_circulation['value'] if actual_circulation else None,
+        'actual_12': self.actual_circulation_12['value'] if self.actual_circulation_12 else None,
+        'actual_15_17': self.actual_circulation_15_17['value'] if self.actual_circulation_15_17 else None,
         'error': self.circulation_pid.error,
         'I_error': self.circulation_pid.I_error,
         'D_error': self.circulation_pid.D_error,
