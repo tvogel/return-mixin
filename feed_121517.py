@@ -76,16 +76,25 @@ class Feed121517(BaseControlModule):
     except Exception as e:
       print(f"Failed to connect to MQTT broker: {e}")
 
-  def actual_circulation_mqtt(self, payload, properties):
+  def actual_circulation_mqtt(self, topic, payload, properties):
     if properties['retain']:
       return
 
     try:
       value = json.loads(payload)
-      self.actual_circulation = {
-        "value": value,
-        "timestamp": datetime.datetime.now()
-      }
+      if topic == MQTT_TOPIC_15_17:
+        self.actual_circulation_15_17 = {
+          "value": value,
+          "timestamp": datetime.datetime.now()
+        }
+      elif topic == MQTT_TOPIC_12:
+        if value := value['params'] \
+            .get('temperature:' + MQTT_TEMPERATURE_ID_12, {}) \
+            .get('tC'):
+          self.actual_circulation_12 = {
+            "value": value,
+            "timestamp": datetime.datetime.now()
+          }
     except Exception as e:
       print(f"Failed to decode MQTT message: {e}")
 
