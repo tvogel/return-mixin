@@ -65,10 +65,10 @@ class BwkOnOff(BaseControlModule):
     dt = (now - self.last_update_dt).total_seconds() if self.last_update_dt else None
     self.last_update_dt = now
 
+    self.buffer_tank.update(dt)
+
     if not pk.is_available():
       # solo mode
-      self.buffer_tank.update(dt)
-
       diagnostics = {
         'mode': 'solo',
         'bwk': bwk.diagnostics(),
@@ -92,6 +92,7 @@ class BwkOnOff(BaseControlModule):
       'mode': 'top-up',
       'value': round(actual_value, 2),
       'value_ema': round(self.value_ema.last, 2),
+      'buffer_ema': round(self.buffer_tank.on_value_ema.last, 2),
       'bwk': bwk.diagnostics(),
       'consumption': consumption,
     }
@@ -99,7 +100,9 @@ class BwkOnOff(BaseControlModule):
     if self.auto_off_dt:
       diagnostics['auto_off'] = self.auto_off_dt.replace(microsecond=0).isoformat()
 
-    if consumption and self.value_ema.last < self.threshold:
+    if self.buffer_tank.on_value_ema.last < self.threshold \
+        and consumption \
+        and self.value_ema.last < self.threshold:
       bwk.set_control(control.ON)
       diagnostics['control_bwk'] = 'on'
       self.auto_off_dt = now + datetime.timedelta(minutes=self.auto_duration_minutes)
