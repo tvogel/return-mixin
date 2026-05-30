@@ -28,9 +28,9 @@ class PWM:
     on = elapsed < on_time
 
     return {
-      'control': self.control,
+      'control': round(self.control, 3),
       'on': on,
-      'elapsed': elapsed,
-      'on_time': on_time,
-      'period': self.period
+      'elapsed': round(elapsed),
+      'on_time': round(on_time),
+      'period': round(self.period)
     }

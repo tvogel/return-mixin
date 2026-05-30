@@ -53,4 +53,4 @@ class PumpPWM:
       self.value_name: self.control
     })
 
-    return { 'speed': self.control }
+    return { 'speed': round(self.control) }
